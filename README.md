@@ -34,7 +34,7 @@ Validation targets:
 - accessibility review with assistive technology
 - PDF/UA validation with veraPDF
 
-See `/home/runner/work/pressbooks-export-tools/pressbooks-export-tools/UIUCLibrary/pressbooks-export-tools/spike/README.md` for the spike checklist and usage notes.
+See `spike/README.md` for the spike checklist and usage notes.
 
 ## Quick start
 
