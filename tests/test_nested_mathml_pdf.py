@@ -62,7 +62,7 @@ def _has_tagged_pdf_support() -> bool:
 
     # Compile a minimal doc with tagging=on to see if it actually produces tags
     test_tex = (
-        "\\DocumentMetadata{tagging=on,testphase=math,lang=en}\n"
+        "\\DocumentMetadata{tagging=on,tagging-setup={math/setup=mathml-SE},lang=en}\n"
         "\\documentclass{article}\n"
         "\\usepackage{amsmath}\n"
         "\\begin{document}\n"
@@ -308,5 +308,6 @@ def test_formula_has_math_child(tagged_pdf_path: Path) -> None:
             f"Formula element {i} has neither an Associated File (AF) with MathML "
             f"nor a <math> child structure element.  The Formula tag contains only "
             f"plain text.  Ensure the LuaLaTeX template includes "
-            f"'testphase=math' in \\DocumentMetadata to activate luamml."
+            f"'tagging-setup={{math/setup=mathml-SE}}' in \\DocumentMetadata "
+            f"to activate luamml MathML embedding."
         )

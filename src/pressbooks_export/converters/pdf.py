@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from .base import OutputConversionError, OutputConverter
@@ -55,7 +56,9 @@ def _kpsewhich(package: str) -> str | None:
     return None
 
 
-def check_pdf_math_dependencies(*, warn_fn: object | None = None) -> list[str]:
+def check_pdf_math_dependencies(
+    *, warn_fn: Callable[[str], None] | None = None
+) -> list[str]:
     """Check for dependencies required for MathML in tagged PDFs.
 
     Returns a list of human-readable warning strings for any missing or
