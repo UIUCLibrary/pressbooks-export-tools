@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 
 from .base import OutputConversionError, OutputConverter
+
+logger = logging.getLogger(__name__)
 
 # Custom Pandoc LaTeX template that injects \DocumentMetadata for PDF/UA-2
 # tagging support.  The template is stored alongside this module.
@@ -28,6 +31,130 @@ def _find_lualatex() -> str:
     )
 
 
+def _kpsewhich(package: str) -> str | None:
+    """Look up a TeX package file via ``kpsewhich``.
+
+    Returns the resolved path or *None* when the binary is missing or the
+    package is not found.
+    """
+    kpsewhich = shutil.which("kpsewhich")
+    if not kpsewhich:
+        return None
+    try:
+        result = subprocess.run(
+            [kpsewhich, package],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def check_pdf_math_dependencies(*, warn_fn: object | None = None) -> list[str]:
+    """Check for dependencies required for MathML in tagged PDFs.
+
+    Returns a list of human-readable warning strings for any missing or
+    problematic dependencies.  An empty list means all checks passed.
+
+    Parameters
+    ----------
+    warn_fn:
+        Optional callable that receives each warning string as it is
+        discovered (e.g. ``click.echo`` or ``logging.warning``).  When
+        *None*, warnings are only collected in the returned list.
+    """
+    warnings: list[str] = []
+
+    def _warn(msg: str) -> None:
+        warnings.append(msg)
+        if callable(warn_fn):
+            warn_fn(msg)
+
+    # -- pandoc ----------------------------------------------------------------
+    if not shutil.which("pandoc"):
+        _warn(
+            "WARNING: pandoc is not installed. "
+            "Install pandoc (https://pandoc.org/) to enable PDF export."
+        )
+
+    # -- lualatex / lualatex-dev -----------------------------------------------
+    has_dev = shutil.which("lualatex-dev")
+    has_stable = shutil.which("lualatex")
+    if not has_dev and not has_stable:
+        _warn(
+            "WARNING: Neither lualatex-dev nor lualatex found on PATH. "
+            "Install TeX Live 2025+ to enable PDF export."
+        )
+    elif not has_dev:
+        _warn(
+            "WARNING: lualatex-dev not found; falling back to lualatex. "
+            "lualatex-dev (TeX Live 2025+) is recommended for full "
+            "PDF/UA-2 math tagging support."
+        )
+
+    # -- luamml ----------------------------------------------------------------
+    if not _kpsewhich("luamml.sty"):
+        _warn(
+            "WARNING: luamml.sty not found in your TeX installation. "
+            "The luamml package is required for MathML tagging in PDFs. "
+            "Without it, Formula tags in the PDF will contain plain text "
+            "instead of <math> structure. "
+            "Install it with: tlmgr install luamml"
+        )
+
+    # -- tagpdf ----------------------------------------------------------------
+    if not _kpsewhich("tagpdf.sty"):
+        _warn(
+            "WARNING: tagpdf.sty not found in your TeX installation. "
+            "The tagpdf package is required for PDF tagging/accessibility. "
+            "Install it with: tlmgr install tagpdf"
+        )
+
+    # -- DocumentMetadata / tagging support ------------------------------------
+    ltx = has_dev or has_stable
+    if ltx:
+        probe_tex = (
+            "\\DocumentMetadata{tagging=on,lang=en}\n"
+            "\\documentclass{article}\n"
+            "\\begin{document}\n"
+            "test\n"
+            "\\end{document}\n"
+        )
+        try:
+            result = subprocess.run(
+                [ltx, "-interaction=nonstopmode", "-halt-on-error", "-jobname=probe"],
+                input=probe_tex,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd="/tmp",
+            )
+            if result.returncode != 0:
+                # Check for the specific "tagging key unknown" error
+                if "tagging" in result.stderr or "tagging" in result.stdout:
+                    _warn(
+                        "WARNING: Your LuaLaTeX does not support "
+                        "\\DocumentMetadata{tagging=on}. "
+                        "PDF tagging (and MathML in Formula tags) requires "
+                        "TeX Live 2025+ or a development release. "
+                        "Current lualatex may be too old."
+                    )
+                else:
+                    _warn(
+                        "WARNING: LuaLaTeX probe compilation failed. "
+                        "PDF tagging support could not be verified. "
+                        "Ensure TeX Live 2025+ is installed."
+                    )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    return warnings
+
+
 class PandocLuaLatexPdfConverter(OutputConverter):
     """PDF converter using Pandoc with LuaLaTeX engine for proper math rendering.
 
@@ -45,6 +172,8 @@ class PandocLuaLatexPdfConverter(OutputConverter):
     Requirements:
         - pandoc (https://pandoc.org/)
         - lualatex-dev (TeX Live 2025+, preferred) or lualatex
+        - luamml TeX package (for MathML in Formula structure elements)
+        - tagpdf TeX package (for PDF tagging infrastructure)
     """
 
     def convert_html(self, input_path: Path, output_path: Path) -> None:
