@@ -6,6 +6,27 @@ from pathlib import Path
 
 from .base import OutputConversionError, OutputConverter
 
+# Custom Pandoc LaTeX template that injects \DocumentMetadata for PDF/UA-2
+# tagging support.  The template is stored alongside this module.
+_PANDOC_TEMPLATE = Path(__file__).with_name("ua2-template.latex")
+
+
+def _find_lualatex() -> str:
+    """Return the best available LuaLaTeX binary.
+
+    ``lualatex-dev`` (TeX Live 2025+) is preferred because it includes the
+    LaTeX3 tagging support required for PDF/UA-2 compliance.  Falls back to
+    ``lualatex`` when the dev binary is not available.
+    """
+    for candidate in ("lualatex-dev", "lualatex"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    raise OutputConversionError(
+        "Neither lualatex-dev nor lualatex found on PATH. "
+        "Install TeX Live 2025+ (lualatex-dev preferred) to enable PDF export."
+    )
+
 
 class PandocLuaLatexPdfConverter(OutputConverter):
     """PDF converter using Pandoc with LuaLaTeX engine for proper math rendering.
@@ -14,9 +35,13 @@ class PandocLuaLatexPdfConverter(OutputConverter):
     It converts HTML with MathML to LaTeX and compiles with LuaLaTeX, producing
     properly rendered math in the output PDF.
 
+    For PDF/UA-2 compliance the converter prefers ``lualatex-dev`` and uses a
+    custom Pandoc template that emits ``\\DocumentMetadata{tagging=on,
+    pdfstandard=ua-2}`` before ``\\documentclass``.
+
     Requirements:
         - pandoc (https://pandoc.org/)
-        - LuaLaTeX (texlive-luatex package)
+        - lualatex-dev (TeX Live 2025+, preferred) or lualatex
     """
 
     def convert_html(self, input_path: Path, output_path: Path) -> None:
@@ -26,17 +51,18 @@ class PandocLuaLatexPdfConverter(OutputConverter):
                 "Pandoc is not installed. Install pandoc to enable PDF export."
             )
 
-        lualatex_binary = shutil.which("lualatex")
-        if not lualatex_binary:
-            raise OutputConversionError(
-                "LuaLaTeX is not installed. Install texlive-luatex to enable PDF export."
-            )
+        lualatex_binary = _find_lualatex()
 
-        result = subprocess.run(
-            [pandoc_binary, str(input_path), "-o", str(output_path), "--pdf-engine=lualatex"],
-            capture_output=True,
-            text=True,
-        )
+        cmd = [
+            pandoc_binary,
+            str(input_path),
+            "-o",
+            str(output_path),
+            f"--pdf-engine={lualatex_binary}",
+            f"--template={_PANDOC_TEMPLATE}",
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise OutputConversionError(f"Pandoc conversion failed: {result.stderr}")
 

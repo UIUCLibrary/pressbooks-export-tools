@@ -27,9 +27,9 @@ Based on the [LaTeX3 tagging-project](https://github.com/latex3/tagging-project/
 
 1. **Use Pandoc + LuaLaTeX**: Pandoc converts HTML with MathML to LaTeX, preserving math expressions. LuaLaTeX then renders the math properly.
 
-2. **For PDF/UA-2 compliance** (future enhancement):
-   - Use `lualatex-dev` from TeX Live 2025+
-   - Enable tagging with `\DocumentMetadata{}`
+2. **For PDF/UA-2 compliance**:
+   - Use `lualatex-dev` from TeX Live 2025+ (the converter auto-detects and prefers it over `lualatex`)
+   - A custom Pandoc template (`ua2-template.latex`) injects `\DocumentMetadata{tagging=on, pdfstandard=ua-2}` before `\documentclass`
    - Each formula can have two associated files:
      - LaTeX source fragment (for editability)
      - MathML document (for accessibility/screen readers)

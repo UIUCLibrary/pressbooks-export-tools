@@ -10,6 +10,7 @@ from lxml import html
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPIKE_ROOT = Path(__file__).resolve().parent
+_PANDOC_TEMPLATE = REPO_ROOT / "src" / "pressbooks_export" / "converters" / "ua2-template.latex"
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,6 +53,21 @@ def process_html(input_path: Path, output_path: Path) -> None:
     output_path.write_text(html.tostring(document, encoding="unicode", pretty_print=True), encoding="utf-8")
 
 
+def _find_lualatex() -> str:
+    """Return the best available LuaLaTeX binary.
+
+    ``lualatex-dev`` (TeX Live 2025+) is preferred for PDF/UA-2 tagging.
+    """
+    for candidate in ("lualatex-dev", "lualatex"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    raise RuntimeError(
+        "Neither lualatex-dev nor lualatex found on PATH. "
+        "Install TeX Live 2025+ (lualatex-dev preferred) to enable PDF export."
+    )
+
+
 def generate_pdf(input_path: Path, output_dir: Path, keep_intermediates: bool = False) -> tuple[Path, Path | None]:
     """Generate PDF from HTML using Pandoc + LuaLaTeX.
 
@@ -61,17 +77,17 @@ def generate_pdf(input_path: Path, output_dir: Path, keep_intermediates: bool = 
     if not pandoc_binary:
         raise RuntimeError("Pandoc is not installed. Install pandoc to enable PDF export.")
 
-    lualatex_binary = shutil.which("lualatex")
-    if not lualatex_binary:
-        raise RuntimeError("LuaLaTeX is not installed. Install texlive-luatex to enable PDF export.")
+    lualatex_binary = _find_lualatex()
 
     pdf_path = output_dir / "pressbooks-math-spike.pdf"
     tex_path = output_dir / "pressbooks-math-spike.tex" if keep_intermediates else None
 
+    template_args = [f"--template={_PANDOC_TEMPLATE}"]
+
     # Generate intermediate LaTeX if requested
     if keep_intermediates:
         subprocess.run(
-            [pandoc_binary, str(input_path), "-o", str(tex_path), "--standalone"],
+            [pandoc_binary, str(input_path), "-o", str(tex_path), "--standalone"] + template_args,
             check=True,
             capture_output=True,
             text=True,
@@ -79,7 +95,8 @@ def generate_pdf(input_path: Path, output_dir: Path, keep_intermediates: bool = 
 
     # Generate PDF directly using Pandoc with LuaLaTeX engine
     subprocess.run(
-        [pandoc_binary, str(input_path), "-o", str(pdf_path), "--pdf-engine=lualatex"],
+        [pandoc_binary, str(input_path), "-o", str(pdf_path),
+         f"--pdf-engine={lualatex_binary}"] + template_args,
         check=True,
         capture_output=True,
         text=True,
