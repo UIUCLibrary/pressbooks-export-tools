@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .base import OutputConversionError, OutputConverter
@@ -131,7 +132,7 @@ def check_pdf_math_dependencies(*, warn_fn: object | None = None) -> list[str]:
                 capture_output=True,
                 text=True,
                 timeout=30,
-                cwd="/tmp",
+                cwd=tempfile.gettempdir(),
             )
             if result.returncode != 0:
                 # Check for the specific "tagging key unknown" error

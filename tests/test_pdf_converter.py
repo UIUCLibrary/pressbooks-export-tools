@@ -49,9 +49,25 @@ def test_ua2_template_exists() -> None:
 def test_ua2_template_has_document_metadata() -> None:
     content = _PANDOC_TEMPLATE.read_text(encoding="utf-8")
     assert r"\DocumentMetadata{" in content
-    assert "pdfstandard=ua-2" in content
+    assert "pdfstandard" in content
+    assert "ua-2" in content
     assert "tagging=on" in content
-    assert "testphase=math" in content
+    assert "math/setup=mathml-SE" in content
+
+
+def test_ua2_template_does_not_use_testphase_math() -> None:
+    """testphase=math is insufficient; tagging-setup math/setup is required."""
+    content = _PANDOC_TEMPLATE.read_text(encoding="utf-8")
+    # Check only non-comment lines for testphase=math
+    active_lines = [
+        line for line in content.splitlines()
+        if not line.strip().startswith("%")
+    ]
+    active_content = "\n".join(active_lines)
+    assert "testphase=math" not in active_content, (
+        "Template should use tagging-setup={math/setup=mathml-SE} "
+        "instead of testphase=math (which does not activate MathML embedding)"
+    )
 
 
 def test_ua2_template_has_document_metadata_before_documentclass() -> None:

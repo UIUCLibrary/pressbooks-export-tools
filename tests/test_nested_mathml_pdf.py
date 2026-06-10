@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import pikepdf
 import pytest
 from lxml import html
 
@@ -79,7 +80,6 @@ def _has_tagged_pdf_support() -> bool:
         if result.returncode != 0 or not pdf_path.exists():
             return False
         try:
-            import pikepdf
             pdf = pikepdf.open(pdf_path)
             return "/StructTreeRoot" in pdf.Root
         except Exception:
@@ -98,7 +98,6 @@ def _walk_struct_tree(node: Any) -> list[tuple[str, Any]]:
     results: list[tuple[str, Any]] = []
 
     def _recurse(n: Any) -> None:
-        import pikepdf
         if isinstance(n, pikepdf.Array):
             for child in n:
                 _recurse(child)
@@ -115,7 +114,6 @@ def _walk_struct_tree(node: Any) -> list[tuple[str, Any]]:
 
 def _find_formula_nodes(pdf_path: Path) -> list[Any]:
     """Find all Formula structure elements in a tagged PDF."""
-    import pikepdf
     pdf = pikepdf.open(pdf_path)
     root = pdf.Root
     if "/StructTreeRoot" not in root:
@@ -255,7 +253,6 @@ def tagged_pdf_path(processed_html: str, tmp_path_factory: pytest.TempPathFactor
 @requires_tagged_pdf
 def test_pdf_is_tagged(tagged_pdf_path: Path) -> None:
     """The generated PDF must be a tagged PDF with a StructTreeRoot."""
-    import pikepdf
     pdf = pikepdf.open(tagged_pdf_path)
     assert "/StructTreeRoot" in pdf.Root, (
         "PDF is not tagged – StructTreeRoot missing. "
@@ -280,11 +277,9 @@ def test_formula_has_math_child(tagged_pdf_path: Path) -> None:
     This is the key accessibility requirement: the Formula structure element
     in the tagged PDF must contain an embedded MathML tree (via Associated
     Files or direct structure), not just plain text content.  When
-    ``testphase=math`` is active, luamml converts LaTeX math to MathML and
-    attaches it to the Formula structure element.
+    ``tagging-setup={math/setup=mathml-SE}`` is active, luamml converts
+    LaTeX math to MathML and attaches it to the Formula structure element.
     """
-    import pikepdf
-
     formulas = _find_formula_nodes(tagged_pdf_path)
     assert len(formulas) > 0, "No Formula elements found – cannot verify math children"
 

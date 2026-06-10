@@ -1,8 +1,11 @@
 % PDF/UA-2 tagging support -- must appear before \documentclass
+% tagging-setup={math/setup=mathml-SE} activates luamml to write MathML
+% as native PDF 2.0 structure elements under each Formula tag.
+% (testphase=math alone only creates Formula tags with plain text.)
 \DocumentMetadata{
+  pdfstandard={ua-2},
   tagging=on,
-  testphase=math,
-  pdfstandard=ua-2,
+  tagging-setup={math/setup=mathml-SE},
   lang=en,
   uncompress,
 }
