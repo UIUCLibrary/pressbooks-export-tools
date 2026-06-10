@@ -6,6 +6,10 @@ import click
 
 from .converters.odt import PandocOdtConverter
 from .converters.pdf import PandocLuaLatexPdfConverter, check_pdf_math_dependencies
+from .converters.pdf_mathml_postprocessor import (
+    extract_mathml_from_html,
+    inject_mathml_into_pdf,
+)
 from .html_processor import HtmlProcessor
 from .math.backends.latex2mathml_backend import Latex2MathMLBackend
 from .math.backends.mathjax_backend import MathJaxNodeBackend
@@ -38,10 +42,22 @@ def main(input_path: Path, output_format: str, output_path: Path, math_backend: 
     temp_html.write_text(processed_html, encoding="utf-8")
 
     if output_format == "pdf":
-        dep_warnings = check_pdf_math_dependencies(
+        check_pdf_math_dependencies(
             warn_fn=lambda msg: click.echo(msg, err=True),
         )
         PandocLuaLatexPdfConverter().convert_html(temp_html, output_path)
+
+        # Post-process: inject MathML as Associated Files on Formula tags.
+        # This ensures Formula structure elements have <math> content even
+        # when luamml does not embed it automatically.
+        mathml_strings = extract_mathml_from_html(processed_html)
+        if mathml_strings:
+            updated = inject_mathml_into_pdf(output_path, mathml_strings)
+            if updated:
+                click.echo(
+                    f"Injected MathML into {updated} Formula element(s) in PDF.",
+                    err=True,
+                )
     else:
         PandocOdtConverter().convert_html(temp_html, output_path)
 
