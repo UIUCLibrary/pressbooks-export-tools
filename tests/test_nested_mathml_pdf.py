@@ -1,19 +1,23 @@
 """Tests that nested MathML structures survive the full pipeline to PDF output.
 
-WeasyPrint does not *render* MathML correctly, but it does include the text
-content of MathML elements in the generated PDF.  These tests verify that:
+These tests verify the complete pipeline from LaTeX images through to the
+final tagged PDF:
 
 1. The HTML processor correctly converts nested LaTeX images into nested MathML.
-2. WeasyPrint can produce a non-empty PDF from the resulting HTML.
-3. The nested MathML element structure is present in the processed HTML.
+2. The Pandoc + LuaLaTeX converter produces a tagged PDF with proper structure.
+3. Formula structure elements in the PDF contain <math> child nodes (not plain text).
 
-This gives confidence that the pipeline does not silently drop or corrupt
-deeply nested math content on the way to PDF output.
+The PDF structure tests require Pandoc and LuaLaTeX with PDF/UA-2 tagging
+support (TeX Live 2025+).  They are skipped in environments that lack these
+tools.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from lxml import html
@@ -42,8 +46,85 @@ def processed_doc(processed_html: str) -> html.HtmlElement:
     return html.document_fromstring(processed_html)
 
 
-# Minimum expected size for a PDF containing math content.
-_MIN_PDF_SIZE_BYTES = 2500
+def _has_tagged_pdf_support() -> bool:
+    """Return True if the environment can produce tagged PDFs with math tagging.
+
+    This requires Pandoc, LuaLaTeX, and TeX Live with ``\\DocumentMetadata``
+    ``tagging=on, testphase=math`` support (TeX Live 2025+).
+    """
+    if not shutil.which("pandoc"):
+        return False
+    lualatex = shutil.which("lualatex-dev") or shutil.which("lualatex")
+    if not lualatex:
+        return False
+
+    # Compile a minimal doc with tagging=on to see if it actually produces tags
+    import tempfile
+    test_tex = (
+        "\\DocumentMetadata{tagging=on,testphase=math,lang=en}\n"
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        "$x^2$\n"
+        "\\end{document}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tex_path = Path(tmpdir) / "probe.tex"
+        tex_path.write_text(test_tex)
+        result = subprocess.run(
+            [lualatex, "-interaction=nonstopmode", f"-output-directory={tmpdir}", str(tex_path)],
+            capture_output=True, text=True,
+        )
+        pdf_path = Path(tmpdir) / "probe.pdf"
+        if result.returncode != 0 or not pdf_path.exists():
+            return False
+        try:
+            import pikepdf
+            pdf = pikepdf.open(pdf_path)
+            return "/StructTreeRoot" in pdf.Root
+        except Exception:
+            return False
+
+
+_tagged_pdf_available = _has_tagged_pdf_support()
+requires_tagged_pdf = pytest.mark.skipif(
+    not _tagged_pdf_available,
+    reason="Requires Pandoc + LuaLaTeX with PDF/UA-2 tagging support (TeX Live 2025+)",
+)
+
+
+def _walk_struct_tree(node: Any) -> list[tuple[str, Any]]:
+    """Walk the PDF structure tree and yield (tag_name, node) pairs."""
+    results: list[tuple[str, Any]] = []
+
+    def _recurse(n: Any) -> None:
+        import pikepdf
+        if isinstance(n, pikepdf.Array):
+            for child in n:
+                _recurse(child)
+            return
+        if isinstance(n, pikepdf.Dictionary):
+            tag = str(n.get("/S", "")) if "/S" in n else ""
+            results.append((tag, n))
+            if "/K" in n:
+                _recurse(n["/K"])
+
+    _recurse(node)
+    return results
+
+
+def _find_formula_nodes(pdf_path: Path) -> list[Any]:
+    """Find all Formula structure elements in a tagged PDF."""
+    import pikepdf
+    pdf = pikepdf.open(pdf_path)
+    root = pdf.Root
+    if "/StructTreeRoot" not in root:
+        return []
+    struct_root = root["/StructTreeRoot"]
+    if "/K" not in struct_root:
+        return []
+    all_nodes = _walk_struct_tree(struct_root["/K"])
+    return [node for tag, node in all_nodes if "Formula" in tag]
 
 
 # ---------------------------------------------------------------------------
@@ -147,34 +228,84 @@ def test_block_display_math_has_display_attribute(
 
 
 # ---------------------------------------------------------------------------
-# PDF output tests – WeasyPrint generates a non-trivial PDF
+# PDF structure tests – verify the *final* PDF contains proper math tagging
 # ---------------------------------------------------------------------------
 
 
-def test_weasyprint_produces_pdf_from_nested_mathml(
-    tmp_path: Path, processed_html: str,
-) -> None:
-    """WeasyPrint should generate a PDF without crashing on nested MathML."""
-    from weasyprint import HTML
+@pytest.fixture(scope="module")
+def tagged_pdf_path(processed_html: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Generate a tagged PDF via PandocLuaLatexPdfConverter and return its path."""
+    from pressbooks_export.converters.pdf import PandocLuaLatexPdfConverter
 
-    pdf_path = tmp_path / "nested_math.pdf"
-    HTML(string=processed_html).write_pdf(str(pdf_path))
+    tmp_dir = tmp_path_factory.mktemp("tagged_pdf")
+    html_path = tmp_dir / "input.html"
+    html_path.write_text(processed_html, encoding="utf-8")
 
-    assert pdf_path.exists()
-    size = pdf_path.stat().st_size
-    assert size > 0, "PDF file is empty"
-    assert size > _MIN_PDF_SIZE_BYTES, (
-        f"PDF suspiciously small ({size} bytes), content may be missing"
+    pdf_path = tmp_dir / "output.pdf"
+    PandocLuaLatexPdfConverter().convert_html(html_path, pdf_path)
+    return pdf_path
+
+
+@requires_tagged_pdf
+def test_pdf_is_tagged(tagged_pdf_path: Path) -> None:
+    """The generated PDF must be a tagged PDF with a StructTreeRoot."""
+    import pikepdf
+    pdf = pikepdf.open(tagged_pdf_path)
+    assert "/StructTreeRoot" in pdf.Root, (
+        "PDF is not tagged – StructTreeRoot missing. "
+        "Ensure LuaLaTeX with tagging support (TeX Live 2025+) is used."
     )
 
 
-def test_weasyprint_pdf_is_valid(tmp_path: Path, processed_html: str) -> None:
-    """The generated PDF should be a valid PDF file."""
-    from weasyprint import HTML
+@requires_tagged_pdf
+def test_pdf_has_formula_elements(tagged_pdf_path: Path) -> None:
+    """The tagged PDF must contain Formula structure elements for math."""
+    formulas = _find_formula_nodes(tagged_pdf_path)
+    assert len(formulas) > 0, (
+        "No Formula structure elements found in the PDF. "
+        "Math content is not being tagged as formulas."
+    )
 
-    pdf_path = tmp_path / "nested_math.pdf"
-    HTML(string=processed_html).write_pdf(str(pdf_path))
 
-    pdf_bytes = pdf_path.read_bytes()
-    assert pdf_bytes[:5] == b"%PDF-", "File should start with PDF header"
-    assert b"%%EOF" in pdf_bytes[-128:], "File should end with EOF marker"
+@requires_tagged_pdf
+def test_formula_has_math_child(tagged_pdf_path: Path) -> None:
+    """Each Formula element must have a <math> node as its first child.
+
+    This is the key accessibility requirement: the Formula structure element
+    in the tagged PDF must contain an embedded MathML tree (via Associated
+    Files or direct structure), not just plain text content.  When
+    ``testphase=math`` is active, luamml converts LaTeX math to MathML and
+    attaches it to the Formula structure element.
+    """
+    import pikepdf
+
+    formulas = _find_formula_nodes(tagged_pdf_path)
+    assert len(formulas) > 0, "No Formula elements found – cannot verify math children"
+
+    for i, formula in enumerate(formulas):
+        # Check for Associated Files (AF) containing MathML – this is how
+        # luamml embeds MathML in PDF/UA-2.
+        has_af = "/AF" in formula
+        # Also check for a child structure element with /S = /math
+        has_math_child = False
+        if "/K" in formula:
+            children = formula["/K"]
+            if isinstance(children, pikepdf.Dictionary):
+                children = [children]
+            elif isinstance(children, pikepdf.Array):
+                children = list(children)
+            else:
+                children = []
+            for child in children:
+                if isinstance(child, pikepdf.Dictionary) and "/S" in child:
+                    tag = str(child["/S"])
+                    if "math" in tag.lower():
+                        has_math_child = True
+                        break
+
+        assert has_af or has_math_child, (
+            f"Formula element {i} has neither an Associated File (AF) with MathML "
+            f"nor a <math> child structure element.  The Formula tag contains only "
+            f"plain text.  Ensure the LuaLaTeX template includes "
+            f"'testphase=math' in \\DocumentMetadata to activate luamml."
+        )

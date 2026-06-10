@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from .converters.odt import PandocOdtConverter
-from .converters.pdf import WeasyPrintPdfConverter
+from .converters.pdf import PandocLuaLatexPdfConverter
 from .html_processor import HtmlProcessor
 from .math.backends.latex2mathml_backend import Latex2MathMLBackend
 from .math.backends.mathjax_backend import MathJaxNodeBackend
@@ -38,7 +38,7 @@ def main(input_path: Path, output_format: str, output_path: Path, math_backend: 
     temp_html.write_text(processed_html, encoding="utf-8")
 
     if output_format == "pdf":
-        WeasyPrintPdfConverter().convert_html(temp_html, output_path)
+        PandocLuaLatexPdfConverter().convert_html(temp_html, output_path)
     else:
         PandocOdtConverter().convert_html(temp_html, output_path)
 
