@@ -92,7 +92,7 @@ The LaTeX3 tagging-project provides validated PDF/UA-2 examples:
 
 3. **MathML Associated Files not yet implemented**: Full PDF/UA-2 compliance with MathML associated files on Formula structure elements requires additional work (Pandoc Lua filter to retain MathML through the conversion).
 
-3. **Screen reader support varies**:
+4. **Screen reader support varies**:
    - Windows: NVDA + MathCAT works with MathML in PDFs
    - macOS: VoiceOver does not yet support MathML in PDFs
    - Firefox will soon support MathML in PDFs
