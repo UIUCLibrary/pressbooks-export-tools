@@ -1,0 +1,70 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{fontspec}
+\usepackage{unicode-math}
+
+% PDF 2.0 and tagging support for accessibility
+\usepackage{tagpdf}
+\tagpdfsetup{
+  activate-all,
+  uncompress,
+  tabsorder=structure,
+  interwordspace=true,
+  paratagging=true,
+  interwordspace=true
+}
+
+\title{Reference PDF: Pressbooks Math Rendering}
+\author{UIUCLibrary Export Tools}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Representative Pressbooks Math Export Fixture}
+
+This document serves as a reference PDF with properly rendered mathematical equations.
+It demonstrates the target output quality for the Pressbooks export tools.
+
+\subsection{Inline Equation}
+Simple inline: $x^2 + y^2 = z^2$.
+
+\subsection{Block Equations}
+
+\paragraph{Quadratic Formula}
+\[
+\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+\]
+
+\paragraph{Sum of Natural Numbers}
+\[
+\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+\]
+
+\paragraph{Gaussian Integral}
+\[
+\int_0^{\infty} e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+\]
+
+\paragraph{Maxwell's First Equation (Gauss's Law)}
+\[
+\nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}
+\]
+
+\paragraph{Matrix Multiplication}
+\[
+\begin{pmatrix} a & b \\ c & d \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix} = \begin{pmatrix} ax+by \\ cx+dy \end{pmatrix}
+\]
+
+\paragraph{Double-Angle Formula}
+\begin{align*}
+\cos(2\theta) &= \cos^2\theta - \sin^2\theta \\
+&= 2\cos^2\theta - 1
+\end{align*}
+
+\paragraph{Cauchy-Schwarz Inequality}
+\[
+\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right)\left( \sum_{k=1}^n b_k^2 \right)
+\]
+
+\end{document}

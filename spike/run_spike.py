@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", default=SPIKE_ROOT / "test_equations.html", type=Path)
     parser.add_argument("--output-dir", default=SPIKE_ROOT / "output", type=Path)
     parser.add_argument("--skip-pdf", action="store_true")
+    parser.add_argument("--keep-intermediates", action="store_true", help="Keep intermediate LaTeX files")
     parser.add_argument("--verapdf", type=Path, default=None)
     return parser.parse_args()
 
@@ -51,10 +52,40 @@ def process_html(input_path: Path, output_path: Path) -> None:
     output_path.write_text(html.tostring(document, encoding="unicode", pretty_print=True), encoding="utf-8")
 
 
-def generate_pdf(input_path: Path, output_path: Path) -> None:
-    from weasyprint import HTML
+def generate_pdf(input_path: Path, output_dir: Path, keep_intermediates: bool = False) -> tuple[Path, Path | None]:
+    """Generate PDF from HTML using Pandoc + LuaLaTeX.
 
-    HTML(filename=str(input_path), base_url=str(input_path.parent)).write_pdf(str(output_path))
+    Returns a tuple of (pdf_path, tex_path) where tex_path is None if intermediates are not kept.
+    """
+    pandoc_binary = shutil.which("pandoc")
+    if not pandoc_binary:
+        raise RuntimeError("Pandoc is not installed. Install pandoc to enable PDF export.")
+
+    lualatex_binary = shutil.which("lualatex")
+    if not lualatex_binary:
+        raise RuntimeError("LuaLaTeX is not installed. Install texlive-luatex to enable PDF export.")
+
+    pdf_path = output_dir / "pressbooks-math-spike.pdf"
+    tex_path = output_dir / "pressbooks-math-spike.tex" if keep_intermediates else None
+
+    # Generate intermediate LaTeX if requested
+    if keep_intermediates:
+        subprocess.run(
+            [pandoc_binary, str(input_path), "-o", str(tex_path), "--standalone"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    # Generate PDF directly using Pandoc with LuaLaTeX engine
+    subprocess.run(
+        [pandoc_binary, str(input_path), "-o", str(pdf_path), "--pdf-engine=lualatex"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    return pdf_path, tex_path
 
 
 def run_verapdf(pdf_path: Path, output_dir: Path, requested_binary: Path | None) -> Path | None:
@@ -72,20 +103,21 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     processed_html = args.output_dir / "processed-equations.html"
     process_html(args.input, processed_html)
-    print(f"Processed HTML written to {processed_html}")
+    print(f"[1/3] Processed HTML written to {processed_html}")
 
     if args.skip_pdf:
         return
 
-    pdf_path = args.output_dir / "pressbooks-math-spike.pdf"
-    generate_pdf(processed_html, pdf_path)
-    print(f"PDF written to {pdf_path}")
+    pdf_path, tex_path = generate_pdf(processed_html, args.output_dir, args.keep_intermediates)
+    print(f"[2/3] PDF written to {pdf_path}")
+    if tex_path:
+        print(f"      Intermediate LaTeX written to {tex_path}")
 
     report_path = run_verapdf(pdf_path, args.output_dir, args.verapdf)
     if report_path:
-        print(f"veraPDF report written to {report_path}")
+        print(f"[3/3] veraPDF report written to {report_path}")
     else:
-        print("veraPDF not found on PATH; skipping PDF/UA validation")
+        print("[3/3] veraPDF not found on PATH; skipping PDF/UA validation")
 
 
 if __name__ == "__main__":

@@ -5,4 +5,7 @@ __pycache__/
 .venv/
 node_modules/
 spike/output/
+spike/reference/*.pdf
+spike/reference/*.aux
+spike/reference/*.log
 *.log
