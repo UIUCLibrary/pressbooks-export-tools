@@ -37,7 +37,10 @@ class PandocLuaLatexPdfConverter(OutputConverter):
 
     For PDF/UA-2 compliance the converter prefers ``lualatex-dev`` and uses a
     custom Pandoc template that emits ``\\DocumentMetadata{tagging=on,
-    pdfstandard=ua-2}`` before ``\\documentclass``.
+    testphase=math, pdfstandard=ua-2}`` before ``\\documentclass``.  The
+    ``testphase=math`` key activates ``luamml`` so that LuaLaTeX automatically
+    converts each LaTeX math expression to MathML and embeds the MathML as
+    Associated Files on Formula structure elements in the tagged PDF.
 
     Requirements:
         - pandoc (https://pandoc.org/)

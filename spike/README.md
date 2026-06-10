@@ -88,9 +88,9 @@ The LaTeX3 tagging-project provides validated PDF/UA-2 examples:
 
 1. **WeasyPrint removed**: WeasyPrint does not support MathML. We now use Pandoc + LuaLaTeX.
 
-2. **PDF/UA-2 tagging enabled**: The pipeline uses a custom Pandoc template (`ua2-template.latex`) that emits `\DocumentMetadata{tagging=on, pdfstandard=ua-2}` before `\documentclass`. The converter prefers `lualatex-dev` (TeX Live 2025+) for full tagging support, falling back to `lualatex` when it is not available.
+2. **PDF/UA-2 tagging enabled**: The pipeline uses a custom Pandoc template (`ua2-template.latex`) that emits `\DocumentMetadata{tagging=on, testphase=math, pdfstandard=ua-2}` before `\documentclass`. The `testphase=math` key activates `luamml`, which automatically converts LaTeX math to MathML and embeds it as Associated Files on Formula structure elements. The converter prefers `lualatex-dev` (TeX Live 2025+) for full tagging support, falling back to `lualatex` when it is not available.
 
-3. **MathML Associated Files not yet implemented**: Full PDF/UA-2 compliance with MathML associated files on Formula structure elements requires additional work (Pandoc Lua filter to retain MathML through the conversion).
+3. **MathML Associated Files**: With `testphase=math` enabled and `lualatex-dev` (TeX Live 2025+), `luamml` automatically generates MathML and embeds it as AF entries on Formula structure elements — no Pandoc Lua filter or sidecar files needed.
 
 4. **Screen reader support varies**:
    - Windows: NVDA + MathCAT works with MathML in PDFs

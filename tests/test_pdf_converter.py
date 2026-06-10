@@ -45,6 +45,7 @@ def test_ua2_template_has_document_metadata() -> None:
     assert r"\DocumentMetadata{" in content
     assert "pdfstandard=ua-2" in content
     assert "tagging=on" in content
+    assert "testphase=math" in content
 
 
 def test_ua2_template_has_document_metadata_before_documentclass() -> None:
