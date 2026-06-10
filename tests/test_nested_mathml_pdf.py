@@ -30,14 +30,20 @@ NESTED_HTML = FIXTURES / "nested_mathml.html"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _process_nested_fixture() -> str:
-    """Run the full HtmlProcessor pipeline on the nested MathML fixture."""
+@pytest.fixture(scope="module")
+def processed_html() -> str:
+    """Run the full HtmlProcessor pipeline on the nested MathML fixture (cached)."""
     markup = NESTED_HTML.read_text(encoding="utf-8")
     return HtmlProcessor(backend=Latex2MathMLBackend()).process_html(markup)
 
 
-def _parse(processed: str) -> html.HtmlElement:
-    return html.document_fromstring(processed)
+@pytest.fixture(scope="module")
+def processed_doc(processed_html: str) -> html.HtmlElement:
+    return html.document_fromstring(processed_html)
+
+
+# Minimum expected size for a PDF containing math content.
+_MIN_PDF_SIZE_BYTES = 2500
 
 
 # ---------------------------------------------------------------------------
@@ -45,16 +51,19 @@ def _parse(processed: str) -> html.HtmlElement:
 # ---------------------------------------------------------------------------
 
 
-def test_fixture_detects_four_latex_images() -> None:
+@pytest.fixture(scope="module")
+def fixture_doc() -> html.HtmlElement:
+    return html.document_fromstring(NESTED_HTML.read_text(encoding="utf-8"))
+
+
+def test_fixture_detects_four_latex_images(fixture_doc: html.HtmlElement) -> None:
     """The fixture has 4 latex images (5th has no alt and should be skipped)."""
-    doc = html.document_fromstring(NESTED_HTML.read_text(encoding="utf-8"))
-    images = find_latex_images(doc)
+    images = find_latex_images(fixture_doc)
     assert len(images) == 4
 
 
-def test_fixture_detects_display_modes() -> None:
-    doc = html.document_fromstring(NESTED_HTML.read_text(encoding="utf-8"))
-    images = find_latex_images(doc)
+def test_fixture_detects_display_modes(fixture_doc: html.HtmlElement) -> None:
+    images = find_latex_images(fixture_doc)
     # First two are inline, last two are block
     assert [img.display for img in images] == [False, False, True, True]
 
@@ -64,11 +73,11 @@ def test_fixture_detects_display_modes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_processed_html_contains_no_latex_images_with_alt() -> None:
+def test_processed_html_contains_no_latex_images_with_alt(
+    processed_doc: html.HtmlElement,
+) -> None:
     """All latex images *with alt text* should be replaced; alt-less ones remain."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    remaining = doc.xpath(
+    remaining = processed_doc.xpath(
         '//img[contains(concat(" ", normalize-space(@class), " "), " latex ")]'
     )
     # Only the one without alt text should remain
@@ -76,18 +85,16 @@ def test_processed_html_contains_no_latex_images_with_alt() -> None:
     assert not (remaining[0].get("alt") or "").strip()
 
 
-def test_processed_html_has_math_elements() -> None:
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+def test_processed_html_has_math_elements(processed_doc: html.HtmlElement) -> None:
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     assert len(math_els) == 4
 
 
-def test_nested_fraction_has_mfrac_inside_mfrac() -> None:
+def test_nested_fraction_has_mfrac_inside_mfrac(
+    processed_doc: html.HtmlElement,
+) -> None:
     """\\frac{\\frac{a}{b}}{c} should produce <mfrac> containing <mfrac>."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     first_math = math_els[0]
     outer_fracs = first_math.xpath('.//*[local-name()="mfrac"]')
     assert len(outer_fracs) >= 2, "Expected nested mfrac elements"
@@ -96,11 +103,9 @@ def test_nested_fraction_has_mfrac_inside_mfrac() -> None:
     assert len(inner) >= 1, "Inner mfrac not found inside outer mfrac"
 
 
-def test_nested_sqrt_contains_mfrac() -> None:
+def test_nested_sqrt_contains_mfrac(processed_doc: html.HtmlElement) -> None:
     """\\sqrt{\\frac{...}{...}} should produce <msqrt> containing <mfrac>."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     second_math = math_els[1]
     sqrts = second_math.xpath('.//*[local-name()="msqrt"]')
     assert len(sqrts) >= 1, "Expected msqrt element"
@@ -108,11 +113,9 @@ def test_nested_sqrt_contains_mfrac() -> None:
     assert len(fracs_in_sqrt) >= 1, "Expected mfrac inside msqrt"
 
 
-def test_matrix_has_mtable() -> None:
+def test_matrix_has_mtable(processed_doc: html.HtmlElement) -> None:
     """Matrix should produce <mtable> with <mtr> and <mtd>."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     third_math = math_els[2]
     tables = third_math.xpath('.//*[local-name()="mtable"]')
     assert len(tables) >= 1, "Expected mtable element for matrix"
@@ -120,22 +123,22 @@ def test_matrix_has_mtable() -> None:
     assert len(rows) >= 2, "Expected at least 2 rows in matrix"
 
 
-def test_complex_nested_has_msubsup_and_mfrac_and_msqrt() -> None:
+def test_complex_nested_has_msubsup_and_mfrac_and_msqrt(
+    processed_doc: html.HtmlElement,
+) -> None:
     """\\sum_{i=1}^{n} \\frac{x_i^2}{\\sqrt{...}} should have msubsup, mfrac, msqrt."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     fourth_math = math_els[3]
     assert fourth_math.xpath('.//*[local-name()="msubsup"]'), "Expected msubsup"
     assert fourth_math.xpath('.//*[local-name()="mfrac"]'), "Expected mfrac"
     assert fourth_math.xpath('.//*[local-name()="msqrt"]'), "Expected msqrt"
 
 
-def test_block_display_math_has_display_attribute() -> None:
+def test_block_display_math_has_display_attribute(
+    processed_doc: html.HtmlElement,
+) -> None:
     """Block-mode equations should have display='block' on the <math> element."""
-    processed = _process_nested_fixture()
-    doc = _parse(processed)
-    math_els = doc.xpath('//*[local-name()="math"]')
+    math_els = processed_doc.xpath('//*[local-name()="math"]')
     # 3rd and 4th are block display
     for idx in (2, 3):
         assert math_els[idx].get("display") == "block", (
@@ -148,28 +151,29 @@ def test_block_display_math_has_display_attribute() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_weasyprint_produces_pdf_from_nested_mathml(tmp_path: Path) -> None:
+def test_weasyprint_produces_pdf_from_nested_mathml(
+    tmp_path: Path, processed_html: str,
+) -> None:
     """WeasyPrint should generate a PDF without crashing on nested MathML."""
     from weasyprint import HTML
 
-    processed = _process_nested_fixture()
     pdf_path = tmp_path / "nested_math.pdf"
-    HTML(string=processed).write_pdf(str(pdf_path))
+    HTML(string=processed_html).write_pdf(str(pdf_path))
 
     assert pdf_path.exists()
     size = pdf_path.stat().st_size
     assert size > 0, "PDF file is empty"
-    # A PDF with math content should be larger than a minimal empty PDF (~2.5KB)
-    assert size > 2500, f"PDF suspiciously small ({size} bytes), content may be missing"
+    assert size > _MIN_PDF_SIZE_BYTES, (
+        f"PDF suspiciously small ({size} bytes), content may be missing"
+    )
 
 
-def test_weasyprint_pdf_is_valid(tmp_path: Path) -> None:
+def test_weasyprint_pdf_is_valid(tmp_path: Path, processed_html: str) -> None:
     """The generated PDF should be a valid PDF file."""
     from weasyprint import HTML
 
-    processed = _process_nested_fixture()
     pdf_path = tmp_path / "nested_math.pdf"
-    HTML(string=processed).write_pdf(str(pdf_path))
+    HTML(string=processed_html).write_pdf(str(pdf_path))
 
     pdf_bytes = pdf_path.read_bytes()
     assert pdf_bytes[:5] == b"%PDF-", "File should start with PDF header"
