@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", default=SPIKE_ROOT / "test_equations.html", type=Path)
     parser.add_argument("--output-dir", default=SPIKE_ROOT / "output", type=Path)
     parser.add_argument("--skip-pdf", action="store_true")
-    parser.add_argument("--keep-intermediates", action="store_true", help="Keep intermediate LaTeX files")
+    parser.add_argument("--keep-intermediates", action="store_true", help="Keep intermediate files (LaTeX, etc.)")
     parser.add_argument("--verapdf", type=Path, default=None)
     return parser.parse_args()
 
