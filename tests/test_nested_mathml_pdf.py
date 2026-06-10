@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +60,6 @@ def _has_tagged_pdf_support() -> bool:
         return False
 
     # Compile a minimal doc with tagging=on to see if it actually produces tags
-    import tempfile
     test_tex = (
         "\\DocumentMetadata{tagging=on,testphase=math,lang=en}\n"
         "\\documentclass{article}\n"
@@ -235,6 +235,7 @@ def test_block_display_math_has_display_attribute(
 @pytest.fixture(scope="module")
 def tagged_pdf_path(processed_html: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Generate a tagged PDF via PandocLuaLatexPdfConverter and return its path."""
+    from pressbooks_export.converters.base import OutputConversionError
     from pressbooks_export.converters.pdf import PandocLuaLatexPdfConverter
 
     tmp_dir = tmp_path_factory.mktemp("tagged_pdf")
@@ -242,7 +243,12 @@ def tagged_pdf_path(processed_html: str, tmp_path_factory: pytest.TempPathFactor
     html_path.write_text(processed_html, encoding="utf-8")
 
     pdf_path = tmp_dir / "output.pdf"
-    PandocLuaLatexPdfConverter().convert_html(html_path, pdf_path)
+    try:
+        PandocLuaLatexPdfConverter().convert_html(html_path, pdf_path)
+    except OutputConversionError as exc:
+        pytest.fail(
+            f"PandocLuaLatexPdfConverter failed to produce a PDF: {exc}"
+        )
     return pdf_path
 
 
