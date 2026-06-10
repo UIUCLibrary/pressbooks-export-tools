@@ -13,4 +13,5 @@ class Latex2MathMLBackend(MathBackend):
             raise MathConversionError(
                 "latex2mathml is not installed. Install the '[math]' extra to use this backend."
             ) from exc
-        return convert(latex, display=display)
+        display_value = "block" if display else "inline"
+        return convert(latex, display=display_value)
