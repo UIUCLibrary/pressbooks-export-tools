@@ -18,6 +18,7 @@ from pathlib import Path
 from lxml import html
 
 from .math.backends.sre_backend import SpeechConversionError, SreNodeBackend
+from .math.detector import _is_display
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _find_latex_images(
         latex = (element.get("alt") or "").strip()
         if not latex:
             continue
-        display = element.get("data-display", "inline").lower() == "block"
+        display = _is_display(element)
         results.append((latex, display))
     return results
 
