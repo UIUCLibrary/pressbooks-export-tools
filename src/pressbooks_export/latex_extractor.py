@@ -91,12 +91,16 @@ def extract_latex(
     matches = _find_latex_images(document, classes)
 
     entries: list[LatexEntry] = []
-    for latex, display in matches:
-        speech = ""
-        try:
-            speech = sre_backend.to_speech(latex, display=display)
-        except SpeechConversionError as exc:
-            logger.warning("SRE conversion failed for %r: %s", latex, exc)
+    if not matches:
+        return entries
+
+    speeches: list[str] = [""] * len(matches)
+    try:
+        speeches = sre_backend.to_speech_batch(matches)
+    except SpeechConversionError as exc:
+        logger.warning("SRE batch conversion failed: %s", exc)
+
+    for (latex, display), speech in zip(matches, speeches):
         entries.append(LatexEntry(latex=latex, display=display, speech=speech))
     return entries
 

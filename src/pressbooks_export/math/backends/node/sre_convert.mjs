@@ -1,14 +1,15 @@
 /**
- * Convert a LaTeX expression to a plain-English spoken description.
+ * Convert one or many LaTeX expressions to plain-English spoken descriptions.
  *
- * Reads a JSON object from stdin:
- *   { "latex": "<expression>", "display": false }
+ * Single-item mode (object input):
+ *   stdin:  { "latex": "<expression>", "display": false }
+ *   stdout: { "speech": "<spoken description>" }
+ *           { "error": "<message>" }   (on error)
  *
- * Writes a JSON object to stdout:
- *   { "speech": "<spoken description>" }
- *
- * On error:
- *   { "error": "<message>" }
+ * Batch mode (array input):
+ *   stdin:  [{ "latex": "<expression>", "display": false }, ...]
+ *   stdout: [{ "speech": "..." }, ...]   (one result per input item;
+ *            per-item errors use { "error": "<message>" })
  *
  * Pipeline: LaTeX → MathML (MathJax) → spoken English (Speech Rule Engine).
  */
@@ -38,20 +39,39 @@ for await (const chunk of process.stdin) {
   input += chunk;
 }
 
-try {
-  const { latex, display = false } = JSON.parse(input || '{}');
+/**
+ * Convert a single { latex, display } item to { speech } or { error }.
+ */
+function convertOne(latex, display = false) {
   if (!latex) {
-    throw new Error('Missing "latex" value in stdin payload');
+    return { error: 'Missing "latex" value in payload' };
   }
+  try {
+    const node = mjDocument.convert(latex, { display });
+    const mathml = visitor.visitTree(node);
+    const speech = SRE.toSpeech(mathml);
+    return { speech };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
 
-  // LaTeX → MathML
-  const node = mjDocument.convert(latex, { display });
-  const mathml = visitor.visitTree(node);
+try {
+  const parsed = JSON.parse(input || '{}');
 
-  // MathML → spoken English
-  const speech = SRE.toSpeech(mathml);
-
-  process.stdout.write(JSON.stringify({ speech }));
+  if (Array.isArray(parsed)) {
+    // Batch mode: process every item and return an array of results.
+    const results = parsed.map(({ latex, display = false }) => convertOne(latex, display));
+    process.stdout.write(JSON.stringify(results));
+  } else {
+    // Single-item mode (backward-compatible).
+    const { latex, display = false } = parsed;
+    const result = convertOne(latex, display);
+    process.stdout.write(JSON.stringify(result));
+    if (result.error) {
+      process.exitCode = 1;
+    }
+  }
 } catch (error) {
   process.stdout.write(JSON.stringify({ error: error.message }));
   process.exitCode = 1;

@@ -68,12 +68,14 @@ def test_find_latex_images_skips_missing_alt() -> None:
 
 
 def _make_stub_backend(speech_map: dict[str, str] | None = None) -> MagicMock:
-    """Return a MagicMock SreNodeBackend whose to_speech follows *speech_map*."""
+    """Return a MagicMock SreNodeBackend whose to_speech_batch follows *speech_map*."""
     backend = MagicMock()
     speech_map = speech_map or {}
-    backend.to_speech.side_effect = lambda latex, display=False: speech_map.get(
-        latex, f"spoken: {latex}"
-    )
+
+    def batch_side_effect(items: list[tuple[str, bool]]) -> list[str]:
+        return [speech_map.get(latex, f"spoken: {latex}") for latex, _display in items]
+
+    backend.to_speech_batch.side_effect = batch_side_effect
     return backend
 
 
@@ -108,10 +110,10 @@ def test_extract_latex_custom_classes() -> None:
 
 
 def test_extract_latex_sre_failure_produces_empty_speech(caplog: pytest.LogCaptureFixture) -> None:
-    """A SpeechConversionError is logged as a warning; speech is left empty."""
+    """A SpeechConversionError from to_speech_batch is logged as a warning; speech is left empty."""
     html_content = '<html><body><img class="latex mathjax" alt="x" /></body></html>'
     backend = MagicMock()
-    backend.to_speech.side_effect = SpeechConversionError("node not found")
+    backend.to_speech_batch.side_effect = SpeechConversionError("node not found")
 
     import logging
     with caplog.at_level(logging.WARNING, logger="pressbooks_export.latex_extractor"):
