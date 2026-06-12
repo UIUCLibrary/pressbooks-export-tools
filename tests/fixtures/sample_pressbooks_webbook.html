@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Sample Pressbooks webbook chapter</title>
+  </head>
+  <body>
+    <h1>Chapter with math</h1>
+    <p>Inline: <img class="latex mathjax" alt="x^2 + y^2 = z^2" src="https://example.test/eq1.png" /></p>
+    <div><img class="latex mathjax" data-display="block" alt="\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}" src="https://example.test/eq2.png" /></div>
+    <!-- img without mathjax class — should NOT be matched by default -->
+    <p><img class="latex" alt="\alpha + \beta" src="https://example.test/eq3.png" /></p>
+    <!-- img without alt — should be ignored -->
+    <p><img class="latex mathjax" src="https://example.test/eq4.png" /></p>
+  </body>
+</html>

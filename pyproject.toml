@@ -29,6 +29,7 @@ all = [
 
 [project.scripts]
 pb-export = "pressbooks_export.cli:main"
+pb-extract-latex = "pressbooks_export.cli:extract_latex"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

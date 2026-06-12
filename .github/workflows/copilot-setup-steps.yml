@@ -34,13 +34,15 @@ jobs:
       - name: Install Python dependencies
         run: pip install -e ".[test,math,pdf]"
 
-      # ── Node.js / MathJax ───────────────────────────────────────────────────
+      # ── Node.js / MathJax + SRE ─────────────────────────────────────────────
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/pressbooks_export/math/backends/node/package-lock.json
 
-      - name: Install MathJax Node dependencies
+      - name: Install Node.js dependencies
         run: npm install --prefix src/pressbooks_export/math/backends/node
 
       # ── Pandoc ──────────────────────────────────────────────────────────────

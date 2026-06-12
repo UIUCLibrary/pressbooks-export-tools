@@ -1,2 +1,0 @@
-lxml>=6.1,<7
-weasyprint>=69,<70
