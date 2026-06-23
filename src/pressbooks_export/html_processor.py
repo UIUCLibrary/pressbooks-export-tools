@@ -7,7 +7,7 @@ from lxml import html
 
 from .math.backends.base import MathBackend
 from .math.backends.sre_backend import SpeechConversionError, SreNodeBackend
-from .math.detector import find_latex_images
+from .math.detector import LatexImage, find_latex_images
 from .math.substituter import replace_latex_images
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class HtmlProcessor:
             self._sre_backend = SreNodeBackend()
         return self._sre_backend
 
-    def _collect_speeches(self, latex_images: list) -> list[str] | None:
+    def _collect_speeches(self, latex_images: list[LatexImage]) -> list[str] | None:
         """Return a list of spoken descriptions for *latex_images*, or *None* on failure.
 
         Uses :class:`SreNodeBackend` to convert each LaTeX expression to a
