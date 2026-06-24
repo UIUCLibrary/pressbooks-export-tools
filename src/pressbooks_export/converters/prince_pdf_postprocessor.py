@@ -33,6 +33,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pikepdf as _pikepdf
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,11 @@ logger = logging.getLogger(__name__)
 # XMP template for pdfuaid:part = 2
 # ---------------------------------------------------------------------------
 
+# The XMP specification (ISO 16684-1) requires that an XMP packet embedded in
+# a PDF begins with the UTF-8 BOM (U+FEFF, encoded as \xef\xbb\xbf) in the
+# xpacket begin PI.  The three characters below are the individual Latin-1
+# code points that, when encoded as UTF-8 and read by an XMP parser, produce
+# the expected BOM sequence at the byte level.
 _PDFUA2_XMP_PACKET = """\
 <?xpacket begin='\xef\xbb\xbf' id='W5M0MpCehiHzreSzNTczkc9d'?>
 <x:xmpmeta xmlns:x='adobe:ns:meta/'>
@@ -53,7 +62,7 @@ _PDFUA2_XMP_PACKET = """\
 <?xpacket end='w'?>"""
 
 
-def fix_display_doc_title(pdf: "pikepdf.Pdf") -> None:  # type: ignore[name-defined]
+def fix_display_doc_title(pdf: "_pikepdf.Pdf") -> None:
     """Set ``ViewerPreferences/DisplayDocTitle = true`` in *pdf* (in-place).
 
     PDF/UA-2 (ISO 14289-2 §7.1) requires that the document title is displayed
@@ -73,7 +82,7 @@ def fix_display_doc_title(pdf: "pikepdf.Pdf") -> None:  # type: ignore[name-defi
     logger.debug("Set ViewerPreferences/DisplayDocTitle = true")
 
 
-def inject_pdfua2_xmp(pdf: "pikepdf.Pdf") -> None:  # type: ignore[name-defined]
+def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
     """Inject or merge a ``pdfuaid:part = 2`` declaration into *pdf*'s XMP stream.
 
     If the PDF already contains an ``/Metadata`` stream the new RDF block is

@@ -31,6 +31,8 @@ from pathlib import Path
 
 from lxml import html
 
+from .math.backends.sre_backend import SreNodeBackend
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,7 @@ class PrinceHtmlPreprocessor:
         unchanged and only ``role="math"`` is added.
     """
 
-    def __init__(self, *, sre_backend=None) -> None:
+    def __init__(self, *, sre_backend: SreNodeBackend | None = None) -> None:
         self._sre_backend = sre_backend
 
     def process_html(self, markup: str) -> str:

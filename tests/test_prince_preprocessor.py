@@ -52,15 +52,13 @@ def test_existing_role_not_overwritten_on_img(preprocessor: PrinceHtmlPreprocess
     assert img.get("role") == "img"
 
 
-def test_img_without_alt_does_not_get_role(preprocessor: PrinceHtmlPreprocessor) -> None:
-    """Images with no alt text (no LaTeX) are skipped — they are not math."""
+def test_img_without_alt_still_gets_role(preprocessor: PrinceHtmlPreprocessor) -> None:
+    """An image with no alt text still receives role="math" as a markup-level annotation."""
     markup = '<html><body><p><img class="latex" /></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
     img = doc.xpath('//img[contains(@class, "latex")]')[0]
-    # An img with no alt has no LaTeX so should still get role="math" as a
-    # markup-level annotation; only the alt text update is skipped.
-    # The role is added based on class, not alt content.
+    # role="math" is added based on the class, independent of alt content.
     assert img.get("role") == "math"
 
 
