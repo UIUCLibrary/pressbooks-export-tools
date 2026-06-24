@@ -34,10 +34,13 @@ from .prince_preprocessor import PrinceHtmlPreprocessor
     is_flag=True,
     default=False,
     help=(
-        "Add ARIA landmark roles and labels to the HTML output so that "
-        "Prince XML produces a more accessible tagged PDF.  Adds role= and "
-        "aria-label= attributes to the table of contents, chapter sections, "
-        "and other Pressbooks structural elements."
+        "Prepare the HTML output for Prince XML accessibility tagging.  "
+        "Adds role=\"math\" to math elements so Prince tags them as Formula "
+        "structure elements in the PDF, and copies xml:lang to lang on the "
+        "root <html> element.  When combined with --spoken-alt-text, also "
+        "replaces LaTeX alt text on math images with spoken descriptions "
+        "(storing the original LaTeX in data-latex for downstream MathML "
+        "conversion)."
     ),
 )
 @click.option(
@@ -81,7 +84,9 @@ def main(
     processed_html = processor.process_file(input_path)
 
     if prince_preprocess:
-        processed_html = PrinceHtmlPreprocessor().process_html(processed_html)
+        processed_html = PrinceHtmlPreprocessor(
+            sre_backend=sre_backend if spoken_alt_text else None,
+        ).process_html(processed_html)
 
     if output_format == "html":
         output_path.write_text(processed_html, encoding="utf-8")

@@ -16,18 +16,19 @@ rather than PDF 1.7.  Every PDF/UA-2 file must therefore be a PDF 2.0 file.
 
 | # | Gap | Severity | Fix location |
 |---|-----|----------|--------------|
-| 1 | PDF version is 1.7; UA-2 requires PDF 2.0 | **Blocker** | Prince CSS / CLI flag |
-| 2 | Missing `DisplayDocTitle` viewer preference | **Blocker** | pikepdf post-process |
-| 3 | No PDF/UA identifier (`/Metadata` XMP with `pdfuaid:part=2`) | **Blocker** | pikepdf post-process |
-| 4 | TOC `<div>` has no `role="navigation"` → untagged in PDF | **High** | `PrinceHtmlPreprocessor` ✓ |
-| 5 | Chapter `<div>` elements lack `aria-label` → anonymous regions | **High** | `PrinceHtmlPreprocessor` ✓ |
-| 6 | Math images have LaTeX in `alt` (not human-readable) | **High** | `HtmlProcessor` (spoken alt) ✓ |
-| 7 | Math images should be replaced with `<math>` for Prince to tag as Formula | **High** | `HtmlProcessor` math conversion ✓ |
-| 8 | `<html lang>` attribute absent (only `xml:lang`) → PDF language tag missing | **Medium** | `PrinceHtmlPreprocessor` ✓ |
-| 9 | Decorative images already have `role="presentation"` | ✅ OK | — |
-| 10 | Heading hierarchy (`h1` reused per chapter) may produce flat tag tree | **Medium** | Evaluate / Prince CSS |
-| 11 | Tables may lack `<th>` scope attributes | **Medium** | Pressbooks / manual |
-| 12 | Links missing explicit purpose if only icon | **Low** | Content review |
+| 1 | PDF version is 1.7; UA-2 requires PDF 2.0 | **Blocker** | Prince upgrade (unconfirmed) / post-process |
+| 2 | Missing `DisplayDocTitle` viewer preference | **Blocker** | `converters/prince_pdf_postprocessor.py` ✓ |
+| 3 | No PDF/UA identifier (`/Metadata` XMP with `pdfuaid:part=2`) | **Blocker** | `converters/prince_pdf_postprocessor.py` ✓ |
+| 4 | Math images missing `role="math"` → not tagged as Formula in PDF | **Blocker** | `PrinceHtmlPreprocessor` ✓ |
+| 5 | Math images have LaTeX in `alt` (not human-readable) | **High** | `PrinceHtmlPreprocessor` (spoken alt) ✓ |
+| 6 | TOC `<div>` has no `role="navigation"` → untagged in PDF | **High** | Deferred — see GitHub issue |
+| 7 | Chapter `<div>` elements lack `aria-label` → anonymous regions | **High** | Deferred — see GitHub issue |
+| 8 | Math images should be replaced with `<math>` for Prince to tag as Formula | **High** | `HtmlProcessor` math conversion ✓ |
+| 9 | `<html lang>` attribute absent (only `xml:lang`) → PDF language tag missing | **Medium** | `PrinceHtmlPreprocessor` ✓ |
+| 10 | Decorative images already have `role="presentation"` | ✅ OK | — |
+| 11 | Heading hierarchy (`h1` reused per chapter) may produce flat tag tree | **Medium** | Evaluate / Prince CSS |
+| 12 | Tables may lack `<th>` scope attributes | **Medium** | Pressbooks / manual |
+| 13 | Links missing explicit purpose if only icon | **Low** | Content review |
 
 Items marked ✓ are already addressed by code in this repository.
 
@@ -39,33 +40,31 @@ Items marked ✓ are already addressed by code in this repository.
 
 **Standard requirement** (ISO 14289-2 §4): *A PDF/UA-2 file shall be a PDF 2.0 file.*
 
-**Prince behaviour**: Prince defaults to PDF 1.7.  PDF 2.0 output can be
-requested via the CSS property `@prince-pdf { prince-pdf-output-intent: sRGB; }` 
-together with the CLI flag `--pdf-version=2` (Prince 15+).  Verify with:
-
-```
-prince input.html --pdf-version=2 -o output.pdf
-```
+**Prince behaviour**: Prince defaults to PDF 1.7.  The documentation for Prince 15
+(`https://www.princexml.com/doc/15/prince-output/`) should be consulted to confirm
+whether `--pdf-version=2` is supported in that release.  Based on current information
+this support has **not been confirmed** — upgrading to the latest Prince release is
+recommended and should be tested directly.
 
 If the installed Prince version does not support `--pdf-version=2`, a post-process
-via pikepdf cannot upgrade the file — upgrading the Prince version is required.
+via pikepdf **cannot meaningfully upgrade the file** — upgrading the Prince version
+is required for a proper PDF 2.0 structure.
 
-### Gap 2 — `DisplayDocTitle` viewer preference (Blocker)
+As a stopgap, `converters/prince_pdf_postprocessor.py` addresses the two other
+PDF/UA-2 blockers (Gaps 2 and 3) regardless of PDF version, so that the document
+is as close to compliant as possible given the available tooling.
+
+### Gap 2 — `DisplayDocTitle` viewer preference (Blocker) — fixed
 
 **Standard requirement** (ISO 14289-2 §7.1): The `ViewerPreferences` dictionary
 must contain `DisplayDocTitle: true`.
 
-**Current state**: The Prince-generated PDF likely omits or sets this to false.
-
-**Fix via pikepdf**:
+**Fix**: `converters/prince_pdf_postprocessor.postprocess_for_pdfua2()` sets this
+via pikepdf after Prince generates the PDF:
 
 ```python
-import pikepdf
-with pikepdf.Pdf.open("input.pdf", allow_overwriting_input=True) as pdf:
-    vp = pdf.Root.get("/ViewerPreferences") or pikepdf.Dictionary()
-    vp["/DisplayDocTitle"] = True
-    pdf.Root["/ViewerPreferences"] = vp
-    pdf.save("output.pdf")
+from pressbooks_export.converters.prince_pdf_postprocessor import postprocess_for_pdfua2
+postprocess_for_pdfua2(Path("output.pdf"))
 ```
 
 Alternatively, Prince respects the CSS:
@@ -75,59 +74,64 @@ Alternatively, Prince respects the CSS:
 }
 ```
 
-### Gap 3 — PDF/UA-2 XMP metadata identifier (Blocker)
+### Gap 3 — PDF/UA-2 XMP metadata identifier (Blocker) — fixed
 
 **Standard requirement** (ISO 14289-2 §6.7.3): The file's XMP metadata stream
 must declare `pdfuaid:part` = `2`.
 
-**Fix**: Prince does not emit the `pdfuaid` namespace automatically for UA-2.
-Post-process with pikepdf to extend the existing XMP packet, or inject it:
+**Fix**: `converters/prince_pdf_postprocessor.postprocess_for_pdfua2()` injects
+or merges this declaration into the PDF's XMP metadata stream via pikepdf.  If an
+existing `/Metadata` stream is present, the `pdfuaid` block is merged into it;
+otherwise a complete minimal XMP packet is written.
 
-```python
-xmp_template = b"""<?xpacket begin='\xef\xbb\xbf' id='W5M0MpCehiHzreSzNTczkc9d'?>
-<x:xmpmeta xmlns:x='adobe:ns:meta/'>
-  <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
-    <rdf:Description rdf:about=''
-        xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'>
-      <pdfuaid:part>2</pdfuaid:part>
-    </rdf:Description>
-  </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end='w'?>"""
-```
+### Gap 4 — Math images missing `role="math"` (Blocker) — fixed
 
-### Gap 4 — TOC untagged as navigation (High) — already fixed
+`PrinceHtmlPreprocessor._add_math_roles` adds `role="math"` to:
 
-`PrinceHtmlPreprocessor` now adds `role="navigation"` and
-`aria-label="Table of Contents"` to `<div id="toc">`, causing Prince to emit a
-`Nav` (or `Part`) structure element for the TOC.
+* `<img class="latex">` placeholders (when the preprocessor runs before math
+  conversion).
+* `<math>` elements (when the preprocessor runs after `HtmlProcessor`).
 
-### Gap 5 — Anonymous chapter regions (High) — already fixed
+Prince uses `role="math"` to tag these elements as `Formula` structure elements
+in the PDF tag tree, which is required for PDF/UA-2 math accessibility.
 
-Chapter, front-matter, and back-matter `<div>` elements now receive
-`role="region"` and `aria-label` from their existing `title` attributes via
-`PrinceHtmlPreprocessor`.
+### Gap 5 — LaTeX alt text on math images (High) — fixed
 
-### Gap 6 — LaTeX alt text on math images (High) — already fixed
+With `--prince-preprocess --spoken-alt-text`, `PrinceHtmlPreprocessor` instructs
+Speech Rule Engine to produce plain-English spoken descriptions for each
+`<img class="latex">` element.  The spoken text replaces the LaTeX in `alt`;
+the original LaTeX is preserved in a `data-latex` attribute so that downstream
+MathML conversion (`HtmlProcessor`) can still locate the source expression.
 
-With `--spoken-alt-text`, `HtmlProcessor` instructs Speech Rule Engine to
-produce plain-English descriptions which are then set as `aria-label` on the
-generated `<math>` elements, giving assistive technology a human-readable
+`HtmlProcessor` also sets `aria-label` on generated `<math>` elements when
+`--spoken-alt-text` is active, giving assistive technology a human-readable
 fallback alongside the full MathML tree.
 
-### Gap 7 — Math images vs. MathML Formula tags (High) — already fixed
+### Gap 6 — TOC untagged as navigation (High) — deferred
+
+Adding `role="navigation"` and `aria-label="Table of Contents"` to
+`<div id="toc">` was prototyped but deferred for evaluation.  See the open
+GitHub issue for scope, open questions, and evaluation criteria.
+
+### Gap 7 — Anonymous chapter regions (High) — deferred
+
+Chapter, front-matter, and back-matter `<div>` elements gaining `role="region"`
+and `aria-label` was prototyped but deferred for evaluation.  See the open
+GitHub issue.
+
+### Gap 8 — Math images vs. MathML Formula tags (High) — already fixed
 
 `HtmlProcessor` replaces `<img class="latex">` placeholders with `<math>`
 elements.  Prince renders MathML natively and tags each `<math>` block as a
 `Formula` structure element in the PDF tag tree.
 
-### Gap 8 — Missing plain `lang` attribute (Medium) — already fixed
+### Gap 9 — Missing plain `lang` attribute (Medium) — already fixed
 
 `PrinceHtmlPreprocessor._fix_html_lang` copies `xml:lang` to `lang` on the
 root `<html>` element so that Prince propagates the document language
 (`/Lang` entry) to the PDF catalogue.
 
-### Gap 10 — Heading hierarchy (Medium)
+### Gap 11 — Heading hierarchy (Medium)
 
 Each Pressbooks chapter restarts `<h1>` for the chapter title.  In a
 single-page export this produces a flat `H1 → H2 → H3 …` structure repeated
@@ -148,7 +152,7 @@ This is a medium-priority issue; most screen readers handle repeated `H1` in
 sectioned content gracefully, and validators typically issue warnings rather
 than errors for this pattern.
 
-### Gap 11 — Table header scope (Medium)
+### Gap 12 — Table header scope (Medium)
 
 Data tables should have `<th scope="col">` or `<th scope="row">` attributes.
 Pressbooks sometimes generates tables without explicit scopes.  A table scan
@@ -156,7 +160,7 @@ pass in `PrinceHtmlPreprocessor` could add `scope="col"` to `<th>` elements
 that lack it (defaulting to column headers is usually correct for simple
 tables).
 
-### Gap 12 — Link purpose (Low)
+### Gap 13 — Link purpose (Low)
 
 PDF/UA-2 requires that links have a discernible purpose (ISO 14289-2 §7.18.5).
 Icon-only links (e.g. social media icons) need `aria-label`.  This is a
@@ -171,11 +175,13 @@ For a fully automated pipeline using the existing tooling:
 
 ```
 Pressbooks HTML
-  ↓  HtmlProcessor (--math-backend mathjax)
-  ↓  PrinceHtmlPreprocessor (--prince-preprocess)
-  ↓  [optionally: --spoken-alt-text]
-  ↓  Prince XML (--pdf-version=2)
-  ↓  pikepdf post-processor
+  ↓  HtmlProcessor (--math-backend mathjax [--spoken-alt-text])
+  ↓  PrinceHtmlPreprocessor (--prince-preprocess [--spoken-alt-text])
+        • Adds role="math" to <img class="latex"> and <math> elements
+        • Optionally replaces LaTeX alt with spoken text (data-latex preserved)
+        • Copies xml:lang → lang
+  ↓  Prince XML (--pdf-version=2 if supported)
+  ↓  prince_pdf_postprocessor.postprocess_for_pdfua2()
         • Set DisplayDocTitle = true
         • Inject pdfuaid:part = 2 into XMP
   ↓  veraPDF validation (PDF/UA-2 profile)
@@ -189,9 +195,11 @@ the existing `converters/pdf_mathml_postprocessor.py`.
 
 ## Open questions
 
-1. **Prince version**: Does the installed Prince support `--pdf-version=2`?
-   Prince 15 (released 2023) added PDF 2.0 output.  Older installs are stuck
-   at PDF 1.7 and cannot produce PDF/UA-2 without an upgrade.
+1. **Prince version and PDF 2.0**: Does the currently installed Prince support
+   `--pdf-version=2`?  Prince 15's support for this flag has not been confirmed.
+   Check the Prince 15 release notes at `https://www.princexml.com/doc/15/prince-output/`
+   and test directly.  If Prince 15 does not produce PDF 2.0, a later release or a
+   different tool (PDFreactor, Antenna House) may be required for Gap 1.
 
 2. **MathML AF entries**: PDF/UA-2 recommends MathML as Associated Files on
    `Formula` structure elements (ISO 14289-2 Annex A).  Prince may embed
@@ -200,5 +208,9 @@ the existing `converters/pdf_mathml_postprocessor.py`.
    `pdf_mathml_postprocessor.py` approach (pikepdf injection) can be adapted.
 
 3. **veraPDF profile**: The PDF/UA-2 veraPDF profile is available from
-   `verapdf.org`.  Once a Prince 2.0 PDF is produced, running veraPDF with
+   `verapdf.org`.  Once a Prince PDF 2.0 output is produced, running veraPDF with
    `--flavour ua2` will give a definitive list of remaining failures.
+
+4. **Deferred landmark roles**: TOC navigation, chapter regions, copyright
+   contentinfo — see the open GitHub issue for evaluation criteria and open
+   questions about Prince tag-type behaviour.

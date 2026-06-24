@@ -39,7 +39,10 @@ def _is_display(element: html.HtmlElement) -> bool:
 def find_latex_images(document: html.HtmlElement) -> list[LatexImage]:
     matches: list[LatexImage] = []
     for element in document.xpath('//img[contains(concat(" ", normalize-space(@class), " "), " latex ")]'):
-        latex = (element.get("alt") or "").strip()
+        # Prefer data-latex (set by PrinceHtmlPreprocessor when alt is replaced
+        # with spoken text) over alt so that downstream MathML conversion still
+        # has access to the original LaTeX source expression.
+        latex = (element.get("data-latex") or element.get("alt") or "").strip()
         if not latex:
             continue
         matches.append(

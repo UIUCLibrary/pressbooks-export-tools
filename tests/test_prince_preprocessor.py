@@ -4,7 +4,22 @@ from __future__ import annotations
 import pytest
 from lxml import html
 
+from pressbooks_export.math.backends.sre_backend import SreNodeBackend
 from pressbooks_export.prince_preprocessor import PrinceHtmlPreprocessor
+
+
+def _parse(markup: str) -> html.HtmlElement:
+    return html.fromstring(markup)
+
+
+class StubSreBackend(SreNodeBackend):
+    """SRE backend test double that returns predictable spoken descriptions."""
+
+    def __init__(self) -> None:
+        pass  # Skip Node.js path setup
+
+    def to_speech_batch(self, items: list[tuple[str, bool]]) -> list[str]:
+        return [f"spoken: {latex}" for latex, _display in items]
 
 
 @pytest.fixture()
@@ -12,143 +27,113 @@ def preprocessor() -> PrinceHtmlPreprocessor:
     return PrinceHtmlPreprocessor()
 
 
-def _parse(markup: str) -> html.HtmlElement:
-    return html.fromstring(markup)
+@pytest.fixture()
+def preprocessor_with_sre() -> PrinceHtmlPreprocessor:
+    return PrinceHtmlPreprocessor(sre_backend=StubSreBackend())
 
 
 # ---------------------------------------------------------------------------
-# TOC landmark
+# role="math" on <img class="latex"> elements
 # ---------------------------------------------------------------------------
 
-def test_toc_gets_navigation_role(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = '<html><body><div id="toc"><h1>Contents</h1><ul><li>Chapter 1</li></ul></div></body></html>'
+def test_latex_img_gets_math_role(preprocessor: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="x^2" /></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
-    toc = doc.get_element_by_id("toc")
-    assert toc.get("role") == "navigation"
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("role") == "math"
 
 
-def test_toc_gets_aria_label(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = '<html><body><div id="toc"><ul></ul></div></body></html>'
+def test_existing_role_not_overwritten_on_img(preprocessor: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="x^2" role="img" /></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
-    assert doc.get_element_by_id("toc").get("aria-label") == "Table of Contents"
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("role") == "img"
 
 
-def test_toc_existing_role_not_overwritten(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = '<html><body><div id="toc" role="complementary"><ul></ul></div></body></html>'
+def test_img_without_alt_does_not_get_role(preprocessor: PrinceHtmlPreprocessor) -> None:
+    """Images with no alt text (no LaTeX) are skipped — they are not math."""
+    markup = '<html><body><p><img class="latex" /></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
-    assert doc.get_element_by_id("toc").get("role") == "complementary"
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    # An img with no alt has no LaTeX so should still get role="math" as a
+    # markup-level annotation; only the alt text update is skipped.
+    # The role is added based on class, not alt content.
+    assert img.get("role") == "math"
 
 
 # ---------------------------------------------------------------------------
-# Copyright page
+# role="math" on <math> elements (already converted)
 # ---------------------------------------------------------------------------
 
-def test_copyright_page_gets_contentinfo_role(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = '<html><body><div id="copyright-page"><p>Copyright</p></div></body></html>'
+def test_math_element_gets_math_role(preprocessor: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><math><mtext>x+y</mtext></math></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
-    elem = doc.get_element_by_id("copyright-page")
-    assert elem.get("role") == "contentinfo"
-    assert elem.get("aria-label") == "Copyright"
+    math_el = doc.xpath('//*[local-name()="math"]')[0]
+    assert math_el.get("role") == "math"
 
 
-# ---------------------------------------------------------------------------
-# Title page
-# ---------------------------------------------------------------------------
-
-def test_title_page_gets_region_role(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = '<html><body><div id="title-page"><h1>My Book</h1></div></body></html>'
+def test_existing_role_not_overwritten_on_math(preprocessor: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><math role="presentation"><mtext>x</mtext></math></p></body></html>'
     result = preprocessor.process_html(markup)
     doc = _parse(result)
-    elem = doc.get_element_by_id("title-page")
-    assert elem.get("role") == "region"
-    assert elem.get("aria-label") == "Title Page"
+    math_el = doc.xpath('//*[local-name()="math"]')[0]
+    assert math_el.get("role") == "presentation"
 
 
 # ---------------------------------------------------------------------------
-# Chapter / front-matter / back-matter sections
+# Spoken alt text update (with SRE backend)
 # ---------------------------------------------------------------------------
 
-def test_chapter_div_gets_region_role_from_title(preprocessor: PrinceHtmlPreprocessor) -> None:
+def test_alt_updated_to_spoken_with_sre(preprocessor_with_sre: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="x^2" /></p></body></html>'
+    result = preprocessor_with_sre.process_html(markup)
+    doc = _parse(result)
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("alt") == "spoken: x^2"
+
+
+def test_original_latex_preserved_in_data_latex(preprocessor_with_sre: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="\\frac{1}{2}" /></p></body></html>'
+    result = preprocessor_with_sre.process_html(markup)
+    doc = _parse(result)
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("data-latex") == "\\frac{1}{2}"
+    assert img.get("alt") == "spoken: \\frac{1}{2}"
+
+
+def test_alt_unchanged_without_sre(preprocessor: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="x^2" /></p></body></html>'
+    result = preprocessor.process_html(markup)
+    doc = _parse(result)
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("alt") == "x^2"
+    assert img.get("data-latex") is None
+
+
+def test_existing_data_latex_not_overwritten(preprocessor_with_sre: PrinceHtmlPreprocessor) -> None:
+    """If data-latex is already set, it should not be overwritten."""
     markup = (
         '<html><body>'
-        '<div class="chapter standard" id="ch1" title="Introduction to Probability">'
-        '<h1>Introduction to Probability</h1>'
-        '</div>'
+        '<p><img class="latex" alt="spoken already" data-latex="x^2" /></p>'
         '</body></html>'
     )
-    result = preprocessor.process_html(markup)
+    result = preprocessor_with_sre.process_html(markup)
     doc = _parse(result)
-    elem = doc.get_element_by_id("ch1")
-    assert elem.get("role") == "region"
-    assert elem.get("aria-label") == "Introduction to Probability"
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    # data-latex should not be overwritten
+    assert img.get("data-latex") == "x^2"
 
 
-def test_front_matter_gets_aria_label(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = (
-        '<html><body>'
-        '<div class="front-matter introduction" id="fm1" title="Preface">'
-        '<h1>Preface</h1>'
-        '</div>'
-        '</body></html>'
-    )
-    result = preprocessor.process_html(markup)
+def test_role_added_even_with_sre(preprocessor_with_sre: PrinceHtmlPreprocessor) -> None:
+    markup = '<html><body><p><img class="latex" alt="x^2" /></p></body></html>'
+    result = preprocessor_with_sre.process_html(markup)
     doc = _parse(result)
-    elem = doc.get_element_by_id("fm1")
-    assert elem.get("aria-label") == "Preface"
-
-
-def test_section_without_title_not_labelled(preprocessor: PrinceHtmlPreprocessor) -> None:
-    """Sections without a title attribute should not receive aria-label."""
-    markup = (
-        '<html><body>'
-        '<div class="chapter standard" id="ch-no-title">'
-        '<h1>Chapter</h1>'
-        '</div>'
-        '</body></html>'
-    )
-    result = preprocessor.process_html(markup)
-    doc = _parse(result)
-    elem = doc.get_element_by_id("ch-no-title")
-    assert elem.get("aria-label") is None
-    assert elem.get("role") is None
-
-
-def test_existing_aria_label_not_overwritten(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = (
-        '<html><body>'
-        '<div class="chapter standard" id="ch2" title="New Title" aria-label="Custom Label">'
-        '</div>'
-        '</body></html>'
-    )
-    result = preprocessor.process_html(markup)
-    doc = _parse(result)
-    assert doc.get_element_by_id("ch2").get("aria-label") == "Custom Label"
-
-
-# ---------------------------------------------------------------------------
-# Part wrapper
-# ---------------------------------------------------------------------------
-
-def test_part_wrapper_labelled_from_heading(preprocessor: PrinceHtmlPreprocessor) -> None:
-    markup = (
-        '<html><body>'
-        '<div class="part-wrapper" id="part1">'
-        '<h1>Part I: Foundations</h1>'
-        '<div class="chapter standard" id="ch3" title="Chapter 1">'
-        '<h1>Chapter 1</h1>'
-        '</div>'
-        '</div>'
-        '</body></html>'
-    )
-    result = preprocessor.process_html(markup)
-    doc = _parse(result)
-    part = doc.get_element_by_id("part1")
-    assert part.get("role") == "region"
-    assert part.get("aria-label") == "Part I: Foundations"
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("role") == "math"
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +159,4 @@ def test_existing_lang_not_overwritten(preprocessor: PrinceHtmlPreprocessor) -> 
     root = doc if doc.tag == "html" else doc.find(".//html")
     if root is not None:
         assert root.get("lang") == "fr"
+

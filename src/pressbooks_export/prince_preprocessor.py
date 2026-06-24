@@ -1,75 +1,73 @@
-"""HTML preprocessor that adds ARIA landmarks and roles to Pressbooks exports.
+"""HTML preprocessor that prepares Pressbooks exports for Prince XML.
 
-Pressbooks HTML exports lack the ARIA landmark roles (``navigation``,
-``region``, ``contentinfo``, etc.) that Prince XML uses when building the
-accessibility tag tree of a PDF.  This module supplies a thin preprocessing
-step that inserts those attributes so that Prince can produce a more
-accessible tagged PDF without requiring changes to Pressbooks itself.
+This module adds ``role="math"`` to math elements and optionally replaces
+LaTeX ``alt`` text with plain-English spoken descriptions so that Prince XML
+produces an accessible tagged PDF.
 
 Usage::
 
     from pressbooks_export.prince_preprocessor import PrinceHtmlPreprocessor
+
+    # Basic: only add role="math"
     preprocessor = PrinceHtmlPreprocessor()
     accessible_html = preprocessor.process_file(Path("export.html"))
 
-A ticket has been opened with Pressbooks to add these attributes natively;
-once that lands, this preprocessing step can be removed.
+    # With spoken alt text (requires Node.js + SRE)
+    from pressbooks_export.math.backends.sre_backend import SreNodeBackend
+    preprocessor = PrinceHtmlPreprocessor(sre_backend=SreNodeBackend())
+    accessible_html = preprocessor.process_file(Path("export.html"))
+
+Note
+----
+ARIA landmark roles for Pressbooks structural elements (TOC navigation,
+chapter regions, copyright contentinfo, etc.) were prototyped but deferred
+to a separate GitHub issue for evaluation before merging.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from lxml import html
 
-
-# ---------------------------------------------------------------------------
-# Landmark mapping for well-known Pressbooks div IDs
-# ---------------------------------------------------------------------------
-
-#: Mapping of ``<div id="...">`` values to (role, aria-label) pairs.
-_ID_LANDMARK_MAP: dict[str, tuple[str, str]] = {
-    "toc": ("navigation", "Table of Contents"),
-    "title-page": ("region", "Title Page"),
-    "half-title-page": ("region", "Half Title Page"),
-    "copyright-page": ("contentinfo", "Copyright"),
-}
-
-#: CSS classes whose outermost ``<div>`` elements should become labelled
-#: regions.  Order matters: the first matching class wins.
-_SECTION_CLASSES: tuple[str, ...] = (
-    "chapter",
-    "front-matter",
-    "back-matter",
-    "appendix",
-    "part-wrapper",
-)
+logger = logging.getLogger(__name__)
 
 
 class PrinceHtmlPreprocessor:
-    """Add ARIA landmark roles and labels to a Pressbooks HTML export.
+    """Prepare Pressbooks HTML for Prince XML accessibility tagging.
 
-    The preprocessor makes four categories of change:
+    The preprocessor makes two categories of change:
 
-    1. **Known IDs** – ``<div id="toc">``, ``<div id="copyright-page">``, etc.
-       receive an explicit ``role`` and ``aria-label``.
-    2. **Section divs** – ``<div class="chapter …">`` and similar Pressbooks
-       section wrappers gain ``role="region"`` and an ``aria-label`` sourced
-       from their existing ``title`` attribute.
-    3. **Part wrappers** – ``<div class="part-wrapper">`` elements are treated
-       as regions labelled after the first ``<h1>`` or ``<h2>`` they contain.
-    4. **HTML ``lang`` attribute** – If the ``<html>`` element has only
+    1. **Math roles** – ``<img class="latex">`` placeholders (when present)
+       and ``<math>`` elements receive ``role="math"`` so Prince tags them as
+       ``Formula`` structure elements in the PDF.  When an ``<img>`` element
+       is found, the original LaTeX is preserved in a ``data-latex`` attribute
+       before the ``alt`` text is replaced, so that downstream MathML
+       conversion can still locate the source expression.
+    2. **HTML ``lang`` attribute** – If the ``<html>`` element has only
        ``xml:lang`` (XHTML heritage) but no plain ``lang``, the plain ``lang``
-       attribute is added so that Prince picks up the document language.
+       attribute is added so that Prince propagates the document language to
+       the PDF catalogue.
+
+    Parameters
+    ----------
+    sre_backend:
+        Optional Speech Rule Engine backend.  When provided, the ``alt``
+        attribute on each ``<img class="latex">`` element is replaced with a
+        plain-English spoken description and the original LaTeX is moved to
+        ``data-latex``.  When *None* (default), ``alt`` text is left
+        unchanged and only ``role="math"`` is added.
     """
 
+    def __init__(self, *, sre_backend=None) -> None:
+        self._sre_backend = sre_backend
+
     def process_html(self, markup: str) -> str:
-        """Return *markup* with ARIA landmarks and roles injected."""
+        """Return *markup* with math roles and optional spoken alt text injected."""
         document = html.fromstring(markup)
         self._fix_html_lang(document)
-        self._add_id_landmarks(document)
-        self._add_section_region_labels(document)
-        self._add_part_wrapper_labels(document)
+        self._add_math_roles(document)
         return html.tostring(document, encoding="unicode", pretty_print=True)
 
     def process_file(self, path: Path) -> str:
@@ -99,58 +97,65 @@ class PrinceHtmlPreprocessor:
         if xml_lang and not root.get("lang"):
             root.set("lang", xml_lang)
 
-    @staticmethod
-    def _add_id_landmarks(document: html.HtmlElement) -> None:
-        """Add ``role`` / ``aria-label`` to ``<div>`` elements with known IDs."""
-        for div_id, (role, label) in _ID_LANDMARK_MAP.items():
-            elements = document.xpath(f'//div[@id="{div_id}"]')
-            for elem in elements:
-                if not elem.get("role"):
-                    elem.set("role", role)
-                if not elem.get("aria-label"):
-                    elem.set("aria-label", label)
+    def _add_math_roles(self, document: html.HtmlElement) -> None:
+        """Add ``role="math"`` to math elements and optionally update alt text.
 
-    @staticmethod
-    def _add_section_region_labels(document: html.HtmlElement) -> None:
-        """Add ``role="region"`` and ``aria-label`` to Pressbooks section wrappers.
+        Handles two element types:
 
-        Pressbooks chapter / front-matter / back-matter ``<div>`` elements
-        already carry a ``title`` attribute with a human-readable section
-        name.  This method copies that value to ``aria-label`` and adds
-        ``role="region"`` so Prince can create a named region structure
-        element in the PDF tag tree.
+        * ``<img class="latex">`` – Pressbooks math placeholders that have
+          not yet been converted to MathML.  Receives ``role="math"`` and,
+          when an SRE backend is available, has its ``alt`` attribute replaced
+          with a spoken description (original LaTeX moved to ``data-latex``).
+        * ``<math>`` – Already-converted MathML elements (e.g. when this
+          preprocessor runs after :class:`~pressbooks_export.html_processor.HtmlProcessor`).
+          Receives ``role="math"`` if not already set.
         """
-        for section_class in _SECTION_CLASSES:
-            xpath = (
-                f'//div[contains(concat(" ", normalize-space(@class), " "),'
-                f' " {section_class} ")][@title]'
+        # --- <img class="latex"> placeholders ----------------------------------
+        img_elements = document.xpath(
+            '//img[contains(concat(" ", normalize-space(@class), " "), " latex ")]'
+        )
+
+        if img_elements and self._sre_backend is not None:
+            self._update_img_alt_text(img_elements)
+
+        for img in img_elements:
+            if not img.get("role"):
+                img.set("role", "math")
+
+        # --- <math> elements (already converted) --------------------------------
+        for math_el in document.xpath('//*[local-name()="math"]'):
+            if not math_el.get("role"):
+                math_el.set("role", "math")
+
+    def _update_img_alt_text(self, img_elements: list) -> None:
+        """Replace LaTeX ``alt`` with spoken text; preserve LaTeX in ``data-latex``.
+
+        Uses the SRE backend to convert each LaTeX expression to a
+        plain-English spoken description.  If the batch conversion fails the
+        ``alt`` attributes are left unchanged and a warning is logged.
+        """
+        from .math.backends.sre_backend import SpeechConversionError
+        from .math.detector import _is_display
+
+        items = []
+        for img in img_elements:
+            latex = (img.get("alt") or "").strip()
+            items.append((latex, _is_display(img)))
+
+        try:
+            speeches = self._sre_backend.to_speech_batch(items)
+        except SpeechConversionError as exc:
+            logger.warning(
+                "prince-preprocess: SRE batch conversion failed, alt text not updated: %s",
+                exc,
             )
-            for elem in document.xpath(xpath):
-                title = (elem.get("title") or "").strip()
-                if not title:
-                    continue
-                if not elem.get("role"):
-                    elem.set("role", "region")
-                if not elem.get("aria-label"):
-                    elem.set("aria-label", title)
+            return
 
-    @staticmethod
-    def _add_part_wrapper_labels(document: html.HtmlElement) -> None:
-        """Label ``<div class="part-wrapper">`` elements without a ``title``.
-
-        Part wrappers in Pressbooks exports do not always have a ``title``
-        attribute, but they contain a heading element that can serve as the
-        region label.
-        """
-        for elem in document.xpath('//div[contains(@class, "part-wrapper")]'):
-            if elem.get("aria-label"):
+        for img, (latex, _display), speech in zip(img_elements, items, speeches):
+            if not latex:
                 continue
-            # Use the first heading inside the wrapper as the label.
-            headings = elem.xpath(".//h1 | .//h2 | .//h3")
-            heading = headings[0] if headings else None
-            if heading is not None:
-                label = (heading.text_content() or "").strip()
-                if label:
-                    if not elem.get("role"):
-                        elem.set("role", "region")
-                    elem.set("aria-label", label)
+            # Preserve original LaTeX so downstream MathML detection still works.
+            if not img.get("data-latex"):
+                img.set("data-latex", latex)
+            if speech:
+                img.set("alt", speech)
