@@ -1,6 +1,8 @@
 """Tests for prince_pdf_postprocessor."""
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 pikepdf = pytest.importorskip("pikepdf")
@@ -102,13 +104,12 @@ def test_inject_pdfua2_xmp_merges_into_existing_metadata() -> None:
 # postprocess_for_pdfua2 (round-trip file test)
 # ---------------------------------------------------------------------------
 
-def test_postprocess_for_pdfua2_round_trip(tmp_path: "pathlib.Path") -> None:
-    import pathlib
+def test_postprocess_for_pdfua2_round_trip(tmp_path: pathlib.Path) -> None:
     pdf = _make_minimal_pdf()
     pdf_path = tmp_path / "test.pdf"
     pdf.save(str(pdf_path))
 
-    postprocess_for_pdfua2(pathlib.Path(pdf_path))
+    postprocess_for_pdfua2(pdf_path)
 
     with pikepdf.open(str(pdf_path)) as result:
         assert result.Root["/ViewerPreferences"]["/DisplayDocTitle"] == True
@@ -116,14 +117,13 @@ def test_postprocess_for_pdfua2_round_trip(tmp_path: "pathlib.Path") -> None:
         assert "<pdfuaid:part>2</pdfuaid:part>" in xmp
 
 
-def test_postprocess_for_pdfua2_writes_to_output_path(tmp_path: "pathlib.Path") -> None:
-    import pathlib
+def test_postprocess_for_pdfua2_writes_to_output_path(tmp_path: pathlib.Path) -> None:
     pdf = _make_minimal_pdf()
     pdf_path = tmp_path / "input.pdf"
     out_path = tmp_path / "output.pdf"
     pdf.save(str(pdf_path))
 
-    postprocess_for_pdfua2(pathlib.Path(pdf_path), pathlib.Path(out_path))
+    postprocess_for_pdfua2(pdf_path, out_path)
 
     assert out_path.exists()
     with pikepdf.open(str(out_path)) as result:

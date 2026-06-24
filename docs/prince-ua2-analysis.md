@@ -40,11 +40,11 @@ Items marked ✓ are already addressed by code in this repository.
 
 **Standard requirement** (ISO 14289-2 §4): *A PDF/UA-2 file shall be a PDF 2.0 file.*
 
-**Prince behaviour**: Prince defaults to PDF 1.7.  The documentation for Prince 15
-(`https://www.princexml.com/doc/15/prince-output/`) should be consulted to confirm
-whether `--pdf-version=2` is supported in that release.  Based on current information
-this support has **not been confirmed** — upgrading to the latest Prince release is
-recommended and should be tested directly.
+**Prince behaviour**: Prince defaults to PDF 1.7.  The
+[Prince 15 output documentation](https://www.princexml.com/doc/15/prince-output/)
+should be consulted to confirm whether `--pdf-version=2` is supported in that
+release.  Based on current information this support has **not been confirmed** —
+upgrading to the latest Prince release is recommended and should be tested directly.
 
 If the installed Prince version does not support `--pdf-version=2`, a post-process
 via pikepdf **cannot meaningfully upgrade the file** — upgrading the Prince version
@@ -197,7 +197,7 @@ the existing `converters/pdf_mathml_postprocessor.py`.
 
 1. **Prince version and PDF 2.0**: Does the currently installed Prince support
    `--pdf-version=2`?  Prince 15's support for this flag has not been confirmed.
-   Check the Prince 15 release notes at `https://www.princexml.com/doc/15/prince-output/`
+   Check the [Prince 15 output documentation](https://www.princexml.com/doc/15/prince-output/)
    and test directly.  If Prince 15 does not produce PDF 2.0, a later release or a
    different tool (PDFreactor, Antenna House) may be required for Gap 1.
 

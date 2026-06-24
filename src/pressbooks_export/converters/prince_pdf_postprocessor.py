@@ -49,6 +49,9 @@ logger = logging.getLogger(__name__)
 # xpacket begin PI.  The three characters below are the individual Latin-1
 # code points that, when encoded as UTF-8 and read by an XMP parser, produce
 # the expected BOM sequence at the byte level.
+# The id attribute ('W5M0MpCehiHzreSzNTczkc9d') is the standard Adobe-defined
+# magic number required by the XMP specification; it has no semantic meaning
+# and must appear verbatim in compliant XMP packets.
 _PDFUA2_XMP_PACKET = """\
 <?xpacket begin='\xef\xbb\xbf' id='W5M0MpCehiHzreSzNTczkc9d'?>
 <x:xmpmeta xmlns:x='adobe:ns:meta/'>
@@ -86,8 +89,9 @@ def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
     """Inject or merge a ``pdfuaid:part = 2`` declaration into *pdf*'s XMP stream.
 
     If the PDF already contains an ``/Metadata`` stream the new RDF block is
-    appended inside the existing ``<rdf:RDF>`` element.  Otherwise a minimal
-    XMP packet is written as a new stream.
+    appended inside the existing ``<rdf:RDF>`` element using lxml for robust
+    XML manipulation.  Otherwise a minimal XMP packet is written as a new
+    stream.
 
     Parameters
     ----------
@@ -95,25 +99,53 @@ def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
         An open :class:`pikepdf.Pdf` instance (mutated in-place).
     """
     import pikepdf
+    from lxml import etree
 
-    pdfuaid_block = (
-        "    <rdf:Description rdf:about=''\n"
-        "        xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'>\n"
-        "      <pdfuaid:part>2</pdfuaid:part>\n"
-        "    </rdf:Description>\n"
-    )
+    _PDFUAID_NS = "http://www.aiim.org/pdfua/ns/id/"
+    _RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
     if "/Metadata" in pdf.Root:
         existing_stream = pdf.Root["/Metadata"]
-        existing_xmp = existing_stream.read_bytes().decode("utf-8", errors="replace")
+        existing_bytes = existing_stream.read_bytes()
 
-        if "pdfuaid" in existing_xmp:
-            logger.debug("XMP already contains pdfuaid namespace, skipping injection.")
-            return
+        # Use lxml to detect and merge the pdfuaid namespace.
+        try:
+            # Strip the xpacket PI wrappers for XML parsing; we'll restore them.
+            raw = existing_bytes.decode("utf-8", errors="replace")
+            # Extract inner XML (between xpacket PIs if present)
+            inner_start = raw.find("<x:xmpmeta")
+            inner_end = raw.rfind("</x:xmpmeta>")
+            if inner_start == -1 or inner_end == -1:
+                raise ValueError("Could not locate xmpmeta element")
+            inner_xml = raw[inner_start : inner_end + len("</x:xmpmeta>")]
+            packet_prefix = raw[:inner_start]
+            packet_suffix = raw[inner_end + len("</x:xmpmeta>"):]
 
-        # Insert the pdfuaid block before the closing </rdf:RDF> tag.
-        if "</rdf:RDF>" in existing_xmp:
-            merged = existing_xmp.replace("</rdf:RDF>", pdfuaid_block + "</rdf:RDF>", 1)
+            root = etree.fromstring(inner_xml.encode("utf-8"))
+
+            # Check if pdfuaid is already declared in any rdf:Description.
+            pdfuaid_elems = root.findall(
+                f".//{{{_RDF_NS}}}Description/{{{_PDFUAID_NS}}}part"
+            )
+            if pdfuaid_elems:
+                logger.debug("XMP already contains pdfuaid:part, skipping injection.")
+                return
+
+            # Find the rdf:RDF element and append a new rdf:Description.
+            rdf_rdf = root.find(f"{{{_RDF_NS}}}RDF")
+            if rdf_rdf is None:
+                raise ValueError("No rdf:RDF element found in XMP")
+
+            desc = etree.SubElement(
+                rdf_rdf,
+                f"{{{_RDF_NS}}}Description",
+                attrib={f"{{{_RDF_NS}}}about": ""},
+                nsmap={"pdfuaid": _PDFUAID_NS},
+            )
+            etree.SubElement(desc, f"{{{_PDFUAID_NS}}}part").text = "2"
+
+            merged_inner = etree.tostring(root, encoding="unicode", pretty_print=True)
+            merged = packet_prefix + merged_inner + packet_suffix
             new_stream = pikepdf.Stream(pdf, merged.encode("utf-8"))
             new_stream["/Type"] = pikepdf.Name("/Metadata")
             new_stream["/Subtype"] = pikepdf.Name("/XML")
@@ -121,7 +153,12 @@ def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
             logger.debug("Merged pdfuaid:part=2 into existing XMP metadata stream.")
             return
 
-    # No existing metadata or no rdf:RDF element — write a new XMP packet.
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not parse existing XMP stream (%s); writing new packet.", exc
+            )
+
+    # No existing metadata, or parse failed — write a complete new XMP packet.
     new_stream = pikepdf.Stream(pdf, _PDFUA2_XMP_PACKET.encode("utf-8"))
     new_stream["/Type"] = pikepdf.Name("/Metadata")
     new_stream["/Subtype"] = pikepdf.Name("/XML")
