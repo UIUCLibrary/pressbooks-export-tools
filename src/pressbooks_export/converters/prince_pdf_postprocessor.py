@@ -153,9 +153,13 @@ def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
             logger.debug("Merged pdfuaid:part=2 into existing XMP metadata stream.")
             return
 
-        except Exception as exc:  # noqa: BLE001
+        except (ValueError, UnicodeDecodeError) as exc:
             logger.warning(
                 "Could not parse existing XMP stream (%s); writing new packet.", exc
+            )
+        except Exception as exc:  # noqa: BLE001 — lxml may raise internal types
+            logger.warning(
+                "Unexpected error parsing XMP stream (%s); writing new packet.", exc
             )
 
     # No existing metadata, or parse failed — write a complete new XMP packet.
