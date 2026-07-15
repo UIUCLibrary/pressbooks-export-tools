@@ -40,7 +40,7 @@ class TestPostprocessPdfCommand:
         assert str(pdf_path) in result.output
 
         with pikepdf.open(str(pdf_path)) as pdf:
-            assert pdf.Root["/ViewerPreferences"]["/DisplayDocTitle"] == True
+            assert pdf.Root["/ViewerPreferences"]["/DisplayDocTitle"] is True
             xmp = pdf.Root["/Metadata"].read_bytes().decode()
             assert "<pdfuaid:part>2</pdfuaid:part>" in xmp
 

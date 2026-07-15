@@ -34,7 +34,7 @@
  * The checkbox controls all pipeline activity.  A separate checkbox enables
  * the slower spoken-alt-text flag (requires Node.js + Speech Rule Engine).
  *
- * @package UIUCLibrary\PressooksExportTools
+ * @package UIUCLibrary\Pressbooks\ExportTools
  */
 
 declare(strict_types=1);
