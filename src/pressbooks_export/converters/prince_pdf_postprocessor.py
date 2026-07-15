@@ -13,9 +13,11 @@ document from scratch.
 
 Note on Gap 1 (PDF version)
 ----------------------------
-PDF/UA-2 requires PDF 2.0 (ISO 32000-2).  Prince XML's support for
-``--pdf-version=2`` has not been confirmed for version 15 and may require a
-later Prince release.  The ``upgrade_pdf_version`` helper in this module sets
+PDF/UA-2 requires PDF 2.0 (ISO 32000-2).  After consulting the Prince 16
+documentation, PDF/UA-2 is **not supported** by Prince XML — Prince does not
+produce PDF 2.0 output and does not satisfy PDF/UA-2 requirements via
+``--pdf-version=2``.  Alternative tooling is required for a fully compliant
+PDF/UA-2 output.  The ``upgrade_pdf_version`` helper in this module sets
 the PDF version header via pikepdf, which is a lightweight change suitable
 only as a stopgap measure — it does not perform a structural upgrade to meet
 all PDF 2.0 requirements.  A full compliance check with veraPDF is recommended

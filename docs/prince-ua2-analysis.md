@@ -16,7 +16,7 @@ rather than PDF 1.7.  Every PDF/UA-2 file must therefore be a PDF 2.0 file.
 
 | # | Gap | Severity | Fix location |
 |---|-----|----------|--------------|
-| 1 | PDF version is 1.7; UA-2 requires PDF 2.0 | **Blocker** | Prince upgrade (unconfirmed) / post-process |
+| 1 | PDF version is 1.7; UA-2 requires PDF 2.0 | **Blocker** | Prince does not support PDF/UA-2 — alternative tooling required |
 | 2 | Missing `DisplayDocTitle` viewer preference | **Blocker** | `converters/prince_pdf_postprocessor.py` ✓ |
 | 3 | No PDF/UA identifier (`/Metadata` XMP with `pdfuaid:part=2`) | **Blocker** | `converters/prince_pdf_postprocessor.py` ✓ |
 | 4 | Math images missing `role="math"` → not tagged as Formula in PDF | **Blocker** | `PrinceHtmlPreprocessor` ✓ |
@@ -40,11 +40,12 @@ Items marked ✓ are already addressed by code in this repository.
 
 **Standard requirement** (ISO 14289-2 §4): *A PDF/UA-2 file shall be a PDF 2.0 file.*
 
-**Prince behaviour**: Prince defaults to PDF 1.7.  The
-[Prince 15 output documentation](https://www.princexml.com/doc/15/prince-output/)
-should be consulted to confirm whether `--pdf-version=2` is supported in that
-release.  Based on current information this support has **not been confirmed** —
-upgrading to the latest Prince release is recommended and should be tested directly.
+**Prince behaviour**: Prince defaults to PDF 1.7.  After consulting the
+[Prince 16 output documentation](https://www.princexml.com/doc/16/prince-output/),
+PDF/UA-2 is **not supported** by Prince 16.  Prince does not produce PDF 2.0
+output and does not support the `--pdf-version=2` flag in a way that satisfies
+PDF/UA-2 requirements.  Alternative tooling (PDFreactor, Antenna House) is
+required for a fully compliant PDF/UA-2 output.
 
 If the installed Prince version does not support `--pdf-version=2`, a post-process
 via pikepdf **cannot meaningfully upgrade the file** — upgrading the Prince version
@@ -180,7 +181,7 @@ Pressbooks HTML
         • Adds role="math" to <img class="latex"> and <math> elements
         • Optionally replaces LaTeX alt with spoken text (data-latex preserved)
         • Copies xml:lang → lang
-  ↓  Prince XML (--pdf-version=2 if supported)
+  ↓  Prince XML (note: --pdf-version=2 / PDF/UA-2 not supported by Prince 16)
   ↓  prince_pdf_postprocessor.postprocess_for_pdfua2()
         • Set DisplayDocTitle = true
         • Inject pdfuaid:part = 2 into XMP
@@ -195,11 +196,11 @@ the existing `converters/pdf_mathml_postprocessor.py`.
 
 ## Open questions
 
-1. **Prince version and PDF 2.0**: Does the currently installed Prince support
-   `--pdf-version=2`?  Prince 15's support for this flag has not been confirmed.
-   Check the [Prince 15 output documentation](https://www.princexml.com/doc/15/prince-output/)
-   and test directly.  If Prince 15 does not produce PDF 2.0, a later release or a
-   different tool (PDFreactor, Antenna House) may be required for Gap 1.
+1. **Prince version and PDF 2.0**: PDF/UA-2 is **not supported** by Prince 16.
+   After consulting the [Prince 16 output documentation](https://www.princexml.com/doc/16/prince-output/),
+   Prince does not produce PDF 2.0 output and the `--pdf-version=2` flag does not
+   satisfy PDF/UA-2 requirements.  Alternative tooling (PDFreactor, Antenna House)
+   is required for Gap 1.
 
 2. **MathML AF entries**: PDF/UA-2 recommends MathML as Associated Files on
    `Formula` structure elements (ISO 14289-2 Annex A).  Prince may embed
