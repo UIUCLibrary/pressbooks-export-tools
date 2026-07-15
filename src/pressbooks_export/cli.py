@@ -121,6 +121,37 @@ def main(
 
 
 @click.command()
+@click.argument("pdf_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output path for the modified PDF (default: overwrite the input file in place).",
+)
+def postprocess_pdf(pdf_path: Path, output_path: Path | None) -> None:
+    """Apply PDF/UA-2 post-processing fixes to a Prince-generated PDF.
+
+    Sets ViewerPreferences/DisplayDocTitle and injects a pdfuaid:part=2 XMP
+    declaration — the two metadata fixes that Prince XML does not emit
+    automatically.
+
+    Requires pikepdf: pip install 'pressbooks-export-tools[pdf]'
+    """
+    try:
+        from .converters.prince_pdf_postprocessor import postprocess_for_pdfua2
+    except ImportError as exc:
+        raise click.ClickException(
+            f"pikepdf is required for PDF post-processing: {exc}\n"
+            "Install with: pip install 'pressbooks-export-tools[pdf]'"
+        ) from exc
+
+    postprocess_for_pdfua2(pdf_path, output_path)
+    target = output_path if output_path is not None else pdf_path
+    click.echo(f"PDF/UA-2 post-processing complete: {target}")
+
+
+@click.command()
 @click.argument("input_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--output",
