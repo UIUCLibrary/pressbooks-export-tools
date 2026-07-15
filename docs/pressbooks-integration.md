@@ -8,6 +8,10 @@ normal **Export → Print PDF (Prince)** button and automatically receive:
 - spoken alt text replacing raw LaTeX on math images (optional; requires SRE)
 - PDF/UA-2 metadata fixes (`DisplayDocTitle`, `pdfuaid:part=2` XMP)
 
+Two approaches are documented here.  Start with **Option A** (the self-contained
+hack) — it requires editing one file and nothing else.  Move to **Option B**
+(mu-plugin) when you want the logic to survive Pressbooks core updates.
+
 > **MacGyver note** — this setup is intentionally provisional and targets a
 > specific internal instance used for PDF generation and author training.  The
 > approach is designed to be low-risk: every step has a fallback so that exports
@@ -15,160 +19,338 @@ normal **Export → Print PDF (Prince)** button and automatically receive:
 
 ---
 
-## 1. Server prerequisites
+## 1. Server prerequisites (both options)
 
-All commands that follow must be run as (or accessible to) the web-server user
-(`www-data` on most Debian/Ubuntu installs).
+All commands that follow must be run as (or be accessible to) the web-server
+user — `www-data` on most Debian/Ubuntu installs.
 
-### 1a. Python package
+### 1a. Install the Python package
 
 ```bash
-# Install into the system Python or a dedicated venv.
-# Using a venv is recommended; activate it before the next steps.
-pip install -e /path/to/pressbooks-export-tools[pdf]
+# Clone the repo if you haven't already.
+git clone https://github.com/UIUCLibrary/pressbooks-export-tools.git /opt/pressbooks-export-tools
+
+# Install into a dedicated venv so the entry-point scripts end up in a
+# predictable location (/opt/pb-venv/bin/).
+python3 -m venv /opt/pb-venv
+/opt/pb-venv/bin/pip install -e /opt/pressbooks-export-tools[pdf]
 ```
 
-Verify the CLI tools are on PATH and callable by `www-data`:
+Confirm the two binaries exist and are executable:
 
 ```bash
-sudo -u www-data which pb-export
-sudo -u www-data pb-export --help
-sudo -u www-data which pb-postprocess-pdf
-sudo -u www-data pb-postprocess-pdf --help
+ls -la /opt/pb-venv/bin/pb-export
+ls -la /opt/pb-venv/bin/pb-postprocess-pdf
 ```
 
-If the binaries are installed in a venv, add the venv's `bin/` directory to
-`www-data`'s `PATH` (e.g. via `/etc/environment` or the PHP `open_basedir`
-configuration).
-
-### 1b. Node.js and Speech Rule Engine (optional — spoken alt text only)
-
-The `--spoken-alt-text` flag and the SRE backend require Node.js ≥ 18.
+Verify they run as the web-server user:
 
 ```bash
-# Install Node.js via nvm or your distribution's package manager.
-node --version   # should print v18+
+sudo -u www-data /opt/pb-venv/bin/pb-export --help
+sudo -u www-data /opt/pb-venv/bin/pb-postprocess-pdf --help
+```
 
-# Install the Node dependencies inside the repo.
-npm install --prefix /path/to/pressbooks-export-tools/src/pressbooks_export/math/backends/node
+Both commands should print their help text.  If you see a permission error,
+check that `www-data` can read `/opt/pb-venv/` and `/opt/pressbooks-export-tools/`.
 
-# Verify SRE is reachable by www-data.
-sudo -u www-data node /path/to/.../node/sre.js x
+### 1b. Enable WordPress debug logging
+
+You need the PHP error log to verify the pipeline is running.  Add these lines
+to `wp-config.php` if they are not already there:
+
+```php
+define( 'WP_DEBUG', true );
+define( 'WP_DEBUG_LOG', true );   // writes to wp-content/debug.log
+define( 'WP_DEBUG_DISPLAY', false );
+```
+
+### 1c. Node.js / Speech Rule Engine (optional — skip for now)
+
+The `--spoken-alt-text` flag (plain-English descriptions instead of raw LaTeX
+in alt text) requires Node.js ≥ 18.  Leave it disabled on first deployment;
+add it once the baseline pipeline is confirmed working.
+
+```bash
+# Later, when you want spoken alt text:
+npm install --prefix /opt/pressbooks-export-tools/src/pressbooks_export/math/backends/node
+sudo -u www-data node /opt/pressbooks-export-tools/src/pressbooks_export/math/backends/node/sre.js x
 ```
 
 ---
 
-## 2. Install the mu-plugin
+## Option A — Self-contained hack (edit one file, no mu-plugin)
+
+This is the fastest path.  All the logic lives inline inside `class-pdf.php`.
+
+### A1. Locate the file and the line to replace
 
 ```bash
-cp /path/to/pressbooks-export-tools/mu-plugins/pb-export-postprocess.php \
+# Find the file (path varies by Pressbooks version and install layout).
+find /var/www/html/wp-content/plugins/pressbooks \
+     -name "class-pdf.php" \
+     -path "*/prince/*"
+```
+
+Typical path:
+```
+/var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+Find the exact line number of the `convert_file_to_file` call:
+
+```bash
+grep -n "convert_file_to_file" \
+  /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+You should see one hit, something like:
+
+```
+145:			$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
+```
+
+### A2. Back up the file
+
+```bash
+cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
+   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak
+```
+
+### A3. Open the file and find the block to replace
+
+Open the file in your editor.  Find this **exact line** (it is the only call to
+`convert_file_to_file` in the file):
+
+```php
+$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
+```
+
+**Delete that single line** and paste the following block in its place.
+The only values you must adjust are the two binary paths at the top
+(`$_pbet_bin` and `$_pbet_postbin`):
+
+```php
+// =========================================================================
+// pressbooks-export-tools: accessibility pre/post-processing
+// Adjust the two paths below to match your install, then leave everything else.
+// =========================================================================
+$_pbet_bin     = '/opt/pb-venv/bin/pb-export';          // ← full path to pb-export
+$_pbet_postbin = '/opt/pb-venv/bin/pb-postprocess-pdf'; // ← full path to pb-postprocess-pdf
+
+// ----- Step 1: fetch the book HTML into a secure temp file ---------------
+$_pbet_src_html  = tempnam( sys_get_temp_dir(), 'pb_prince_src_' ) . '.html';
+$_pbet_html_body = @file_get_contents( $this->url );
+
+if ( $_pbet_html_body === false || $_pbet_html_body === '' ) {
+	// Could not fetch HTML — fall back to the original Prince URL-based call.
+	error_log( '[pb-export-tools] Could not fetch HTML from ' . $this->url . '; using Prince URL fallback.' );
+	@unlink( $_pbet_src_html );
+	$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
+
+} else {
+	file_put_contents( $_pbet_src_html, $_pbet_html_body );
+	unset( $_pbet_html_body );
+
+	// ----- Step 2: run pb-export to pre-process the HTML -----------------
+	$_pbet_processed   = tempnam( sys_get_temp_dir(), 'pb_prince_proc_' ) . '.html';
+	$_pbet_descriptors = [
+		0 => [ 'pipe', 'r' ],
+		1 => [ 'pipe', 'w' ],
+		2 => [ 'pipe', 'w' ],
+	];
+	$_pbet_cmd = [
+		$_pbet_bin,
+		'--format', 'html',
+		'--prince-preprocess',
+		// '--spoken-alt-text',  // uncomment after SRE is confirmed working
+		'--output', $_pbet_processed,
+		$_pbet_src_html,
+	];
+
+	$_pbet_proc = @proc_open( $_pbet_cmd, $_pbet_descriptors, $_pbet_pipes );
+
+	if ( is_resource( $_pbet_proc ) ) {
+		fclose( $_pbet_pipes[0] );
+		fclose( $_pbet_pipes[1] );
+		$_pbet_stderr    = (string) stream_get_contents( $_pbet_pipes[2] );
+		fclose( $_pbet_pipes[2] );
+		$_pbet_exit_code = proc_close( $_pbet_proc );
+	} else {
+		$_pbet_exit_code = -1;
+		$_pbet_stderr    = 'proc_open failed to start pb-export';
+	}
+
+	if ( $_pbet_exit_code === 0
+		&& file_exists( $_pbet_processed )
+		&& filesize( $_pbet_processed ) > 0
+	) {
+		$_pbet_html_for_prince = $_pbet_processed;
+		error_log( '[pb-export-tools] HTML pre-processing succeeded.' );
+	} else {
+		error_log( '[pb-export-tools] pb-export pre-processing failed'
+			. ' (exit ' . $_pbet_exit_code . '): ' . $_pbet_stderr
+			. ' — falling back to unprocessed HTML.' );
+		@unlink( $_pbet_processed );
+		$_pbet_html_for_prince = $_pbet_src_html;
+	}
+
+	// ----- Step 3: run Prince on the (possibly pre-processed) HTML -------
+	$retval = $prince->convert_file_to_file( $_pbet_html_for_prince, $this->outputPath, $msg );
+
+	// ----- Step 4: PDF/UA-2 post-processing ------------------------------
+	if ( file_exists( $this->outputPath ) && is_readable( $this->outputPath ) ) {
+		$_pbet_post_cmd  = [ $_pbet_postbin, $this->outputPath ];
+		$_pbet_post_proc = @proc_open( $_pbet_post_cmd, $_pbet_descriptors, $_pbet_post_pipes );
+
+		if ( is_resource( $_pbet_post_proc ) ) {
+			fclose( $_pbet_post_pipes[0] );
+			fclose( $_pbet_post_pipes[1] );
+			$_pbet_post_stderr = (string) stream_get_contents( $_pbet_post_pipes[2] );
+			fclose( $_pbet_post_pipes[2] );
+			$_pbet_post_exit   = proc_close( $_pbet_post_proc );
+
+			if ( $_pbet_post_exit === 0 ) {
+				error_log( '[pb-export-tools] PDF/UA-2 post-processing complete: ' . $this->outputPath );
+			} else {
+				error_log( '[pb-export-tools] pb-postprocess-pdf failed'
+					. ' (exit ' . $_pbet_post_exit . '): ' . $_pbet_post_stderr );
+			}
+		} else {
+			error_log( '[pb-export-tools] Could not start pb-postprocess-pdf; skipping.' );
+		}
+	}
+
+	// ----- Step 5: clean up temp files -----------------------------------
+	if ( isset( $_pbet_processed ) && $_pbet_html_for_prince !== $_pbet_processed ) {
+		@unlink( $_pbet_processed );
+	}
+	@unlink( $_pbet_src_html );
+}
+// =========================================================================
+```
+
+### A4. Verify the file has no PHP syntax errors
+
+```bash
+php -l /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+Expected output: `No syntax errors detected in ...`
+
+If you see a parse error, restore the backup (`cp class-pdf.php.bak class-pdf.php`) and check that you pasted the block cleanly without leaving the original line in place.
+
+### A5. Test an export
+
+1. Log into Pressbooks and open any book.
+2. Go to **Export** and click **Export your book** with **Print PDF (Prince)** selected.
+3. While it runs, tail the debug log in another terminal:
+   ```bash
+   tail -f /var/www/html/wp-content/debug.log | grep pb-export-tools
+   ```
+4. You should see:
+   ```
+   [pb-export-tools] HTML pre-processing succeeded.
+   [pb-export-tools] PDF/UA-2 post-processing complete: /var/www/html/wp-content/uploads/...pdf
+   ```
+5. Download the generated PDF and open it.  In Acrobat go to
+   **File → Properties → Description** — the book title should appear in the
+   title bar (DisplayDocTitle fix).
+
+### A6. Enabling spoken alt text later
+
+When Node.js and SRE are installed and verified, uncomment the one line in the
+block above:
+
+```php
+// '--spoken-alt-text',  // uncomment after SRE is confirmed working
+```
+
+Change it to:
+
+```php
+'--spoken-alt-text',
+```
+
+No other changes needed.
+
+### A7. Rolling back
+
+To remove the hack entirely and restore original behaviour:
+
+```bash
+cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak \
+   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+---
+
+## Option B — mu-plugin approach (survives Pressbooks updates)
+
+Use this when Option A is confirmed working and you want the logic to live
+outside Pressbooks core so it survives future `composer update` runs.
+
+### B1. Install the mu-plugin
+
+```bash
+cp /opt/pressbooks-export-tools/mu-plugins/pb-export-postprocess.php \
    /var/www/html/wp-content/mu-plugins/
 ```
 
-Must-use plugins are loaded automatically — no activation step is needed.
+Must-use plugins load automatically — no activation step is needed.
 
-Visit **Dashboard → Settings → PB Export Tools** to confirm the plugin loaded
-and to configure the binary paths.  The status notices on the settings page
-indicate whether `pb-export` and `pb-postprocess-pdf` were found.
+### B2. Apply the minimal class-pdf.php patch
 
----
-
-## 3. Patch `class-pdf.php`
-
-The mu-plugin registers WordPress hooks but cannot fire them itself — something
-inside Pressbooks's Prince export class must call `apply_filters` /
-`do_action` at the right moments.  The minimal patch below does exactly that.
-
-**File**: `wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php`
-
-Locate the existing call to `$prince->convert_file_to_file(…)` (around line
-145 in Pressbooks 6.x) and replace the surrounding block with:
+Replace the same `convert_file_to_file` line with this much shorter block
+(all the logic now lives in the mu-plugin):
 
 ```php
-// --- pressbooks-export-tools hook: HTML pre-processing -------------------
-// Write the raw HTML to a secure temp file (not web-accessible).
+// --- pressbooks-export-tools: fetch HTML to a temp file and pre-process --
 $_pb_et_tmp_html = tempnam( sys_get_temp_dir(), 'pb_prince_src_' ) . '.html';
 file_put_contents( $_pb_et_tmp_html, file_get_contents( $this->url ) );
 
-// Give the mu-plugin a chance to run pb-export on the HTML.
-// Falls back to $_pb_et_tmp_html unchanged when the plugin is absent or fails.
 $_pb_et_html_for_prince = apply_filters(
-    'pb_export_tools_preprocess_html_path',
-    $_pb_et_tmp_html,
+	'pb_export_tools_preprocess_html_path',
+	$_pb_et_tmp_html,
 );
 
-// --- Prince conversion (uses processed HTML instead of the live URL) -----
+// --- Prince conversion ---------------------------------------------------
 $retval = $prince->convert_file_to_file( $_pb_et_html_for_prince, $this->outputPath, $msg );
 
-// --- pressbooks-export-tools hook: PDF post-processing -------------------
+// --- PDF post-processing and cleanup -------------------------------------
 do_action( 'pb_export_tools_postprocess_pdf', $this->outputPath );
-
-// --- Cleanup temp files ---------------------------------------------------
 do_action( 'pb_export_tools_cleanup_temp_html', $_pb_et_html_for_prince, $_pb_et_tmp_html );
 @unlink( $_pb_et_tmp_html );
-// -------------------------------------------------------------------------
 ```
 
-> The original line was:
-> ```php
-> $retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
-> ```
+### B3. Configure binary paths
 
-If `pb_export_tools_preprocess_html_path` has no listeners (i.e. the mu-plugin
-is not loaded), `apply_filters` returns the value unchanged and the export
-behaves exactly as before.
+Visit **Dashboard → Settings → PB Export Tools** and enter the full paths:
 
----
-
-## 4. Configure the admin settings
-
-Visit **Dashboard → Settings → PB Export Tools** and verify:
-
-| Setting | Recommended value |
+| Setting | Value |
 |---|---|
 | Enable post-processing | ✓ checked |
-| Spoken alt text | leave unchecked until SRE is confirmed working |
-| pb-export path | full path, e.g. `/usr/local/bin/pb-export` |
-| pb-postprocess-pdf path | full path, e.g. `/usr/local/bin/pb-postprocess-pdf` |
+| Spoken alt text | leave unchecked initially |
+| pb-export path | `/opt/pb-venv/bin/pb-export` |
+| pb-postprocess-pdf path | `/opt/pb-venv/bin/pb-postprocess-pdf` |
 
-Using full paths avoids PATH lookup issues when PHP runs under a restricted
-environment (FastCGI, FPM, etc.).
-
----
-
-## 5. Test the pipeline
-
-1. Open any book on the instance and export a **Print PDF (Prince)**.
-2. Check the WordPress debug log (`wp-content/debug.log` or PHP error log) for
-   `[pb-export-tools]` lines confirming success:
-   ```
-   [pb-export-tools] HTML pre-processing succeeded.
-   [pb-export-tools] PDF/UA-2 post-processing complete: /path/to/book.pdf
-   ```
-3. Open the PDF in Acrobat or a PDF inspector and confirm:
-   - **Document Properties → Description** shows the book title in the viewer
-     title bar (`DisplayDocTitle`)
-   - **Document Properties → Advanced** or an XMP viewer shows
-     `pdfuaid:part = 2`
-4. Run veraPDF on the output to check PDF/UA-2 compliance:
-   ```bash
-   verapdf --flavour ua2 /path/to/book.pdf
-   ```
+Status banners on that page indicate whether the binaries were found.
 
 ---
 
-## 6. Troubleshooting
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Warning banner on settings page | Binary not found by web-server user | Use a full path; check `sudo -u www-data which pb-export` |
-| No `[pb-export-tools]` lines in log | WP_DEBUG_LOG not enabled, or patch not applied | Enable `define('WP_DEBUG_LOG', true)` in `wp-config.php` |
-| Export still works but no fixes | `pb-export` exits non-zero | Check stderr in the log; run `pb-export --help` as `www-data` |
-| Export broken after patch | Syntax error in patch | Restore original line; verify patch against the version of Pressbooks installed |
+| `Could not fetch HTML` in log | `$this->url` unreachable from CLI context | Check `allow_url_fopen` in `php.ini`; try `curl` from the shell as `www-data` |
+| `proc_open failed` in log | `proc_open` disabled in `php.ini` | Check `disable_functions` in `php.ini`; remove `proc_open` from the list |
+| `pb-export pre-processing failed (exit -1)` | Binary not found or not executable | Run `sudo -u www-data /opt/pb-venv/bin/pb-export --help`; check path in the code |
+| Export works but PDFs look unchanged | Pre-processing ran but book has no math images | Confirm with a book that has LaTeX equations; check for `<img class="latex">` in source |
+| Export broken after patch | Syntax error in pasted block | `php -l class-pdf.php`; restore backup |
+| No log output at all | `WP_DEBUG_LOG` not enabled | Add `define('WP_DEBUG_LOG', true)` to `wp-config.php` |
 
 ---
 
-## 7. Future direction
+## Future direction
 
 Once the MacGyver phase proves out the pipeline:
 
@@ -178,3 +360,4 @@ Once the MacGyver phase proves out the pipeline:
   as a Composer dependency.
 - Add a Pressbooks-native export format option so authors can select
   "Accessible PDF (Prince + export-tools)" from the export screen.
+
