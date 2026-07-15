@@ -1,0 +1,107 @@
+--- a/inc/modules/export/prince/class-pdf.php
++++ b/inc/modules/export/prince/class-pdf.php
+@@ -283,7 +283,103 @@
+ 
+ 		yield 65 => __( 'Creating file...', 'pressbooks' );
+ 		// Convert
+-		$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
++		// =========================================================================
++		// pressbooks-export-tools: accessibility pre/post-processing
++		// Adjust the two paths below to match your install, then leave everything else.
++		// =========================================================================
++		$_pbet_bin     = '/opt/pb-venv/bin/pb-export';          // ← full path to pb-export
++		$_pbet_postbin = '/opt/pb-venv/bin/pb-postprocess-pdf'; // ← full path to pb-postprocess-pdf
++
++		// ----- Step 1: fetch the book HTML into a secure temp file ---------------
++		$_pbet_src_html  = tempnam( sys_get_temp_dir(), 'pb_prince_src_' ) . '.html';
++		$_pbet_html_body = @file_get_contents( $this->url );
++
++		if ( $_pbet_html_body === false || $_pbet_html_body === '' ) {
++			// Could not fetch HTML — fall back to the original Prince URL-based call.
++			error_log( '[pb-export-tools] Could not fetch HTML from ' . $this->url . '; using Prince URL fallback.' );
++			@unlink( $_pbet_src_html );
++			$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
++
++		} else {
++			file_put_contents( $_pbet_src_html, $_pbet_html_body );
++			unset( $_pbet_html_body );
++
++			// ----- Step 2: run pb-export to pre-process the HTML -----------------
++			$_pbet_processed   = tempnam( sys_get_temp_dir(), 'pb_prince_proc_' ) . '.html';
++			$_pbet_descriptors = [
++				0 => [ 'pipe', 'r' ],
++				1 => [ 'pipe', 'w' ],
++				2 => [ 'pipe', 'w' ],
++			];
++			$_pbet_cmd = [
++				$_pbet_bin,
++				'--format', 'html',
++				'--prince-preprocess',
++				// '--spoken-alt-text',  // uncomment after SRE is confirmed working
++				'--output', $_pbet_processed,
++				$_pbet_src_html,
++			];
++
++			$_pbet_proc = @proc_open( $_pbet_cmd, $_pbet_descriptors, $_pbet_pipes );
++
++			if ( is_resource( $_pbet_proc ) ) {
++				fclose( $_pbet_pipes[0] );
++				fclose( $_pbet_pipes[1] );
++				$_pbet_stderr    = (string) stream_get_contents( $_pbet_pipes[2] );
++				fclose( $_pbet_pipes[2] );
++				$_pbet_exit_code = proc_close( $_pbet_proc );
++			} else {
++				$_pbet_exit_code = -1;
++				$_pbet_stderr    = 'proc_open failed to start pb-export';
++			}
++
++			if ( $_pbet_exit_code === 0
++				&& file_exists( $_pbet_processed )
++				&& filesize( $_pbet_processed ) > 0
++			) {
++				$_pbet_html_for_prince = $_pbet_processed;
++				error_log( '[pb-export-tools] HTML pre-processing succeeded.' );
++			} else {
++				error_log( '[pb-export-tools] pb-export pre-processing failed'
++					. ' (exit ' . $_pbet_exit_code . '): ' . $_pbet_stderr
++					. ' — falling back to unprocessed HTML.' );
++				@unlink( $_pbet_processed );
++				$_pbet_html_for_prince = $_pbet_src_html;
++			}
++
++			// ----- Step 3: run Prince on the (possibly pre-processed) HTML -------
++			$retval = $prince->convert_file_to_file( $_pbet_html_for_prince, $this->outputPath, $msg );
++
++			// ----- Step 4: PDF/UA-2 post-processing ------------------------------
++			if ( file_exists( $this->outputPath ) && is_readable( $this->outputPath ) ) {
++				$_pbet_post_cmd  = [ $_pbet_postbin, $this->outputPath ];
++				$_pbet_post_proc = @proc_open( $_pbet_post_cmd, $_pbet_descriptors, $_pbet_post_pipes );
++
++				if ( is_resource( $_pbet_post_proc ) ) {
++					fclose( $_pbet_post_pipes[0] );
++					fclose( $_pbet_post_pipes[1] );
++					$_pbet_post_stderr = (string) stream_get_contents( $_pbet_post_pipes[2] );
++					fclose( $_pbet_post_pipes[2] );
++					$_pbet_post_exit   = proc_close( $_pbet_post_proc );
++
++					if ( $_pbet_post_exit === 0 ) {
++						error_log( '[pb-export-tools] PDF/UA-2 post-processing complete: ' . $this->outputPath );
++					} else {
++						error_log( '[pb-export-tools] pb-postprocess-pdf failed'
++							. ' (exit ' . $_pbet_post_exit . '): ' . $_pbet_post_stderr );
++					}
++				} else {
++					error_log( '[pb-export-tools] Could not start pb-postprocess-pdf; skipping.' );
++				}
++			}
++
++			// ----- Step 5: clean up temp files -----------------------------------
++			if ( isset( $_pbet_processed ) && $_pbet_html_for_prince !== $_pbet_processed ) {
++				@unlink( $_pbet_processed );
++			}
++			@unlink( $_pbet_src_html );
++		}
++		// =========================================================================
+ 
+ 		if ( is_countable( $msg ) && count( $msg ) ) {
+ 			$this->logError( get_contents( $this->logfile ), [ 'warning' => 1 ] );
