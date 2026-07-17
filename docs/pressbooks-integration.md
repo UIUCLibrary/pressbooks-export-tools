@@ -8,9 +8,11 @@ normal **Export → Print PDF (Prince)** button and automatically receive:
 - spoken alt text replacing raw LaTeX on math images (optional; requires SRE)
 - PDF/UA-2 metadata fixes (`DisplayDocTitle`, `pdfuaid:part=2` XMP)
 
-Two approaches are documented here.  Start with **Option A** (the self-contained
-hack) — it requires editing one file and nothing else.  Move to **Option B**
-(mu-plugin) when you want the logic to survive Pressbooks core updates.
+Three approaches are documented here.  Start with **Option A** (drop-in file
+copy) — it requires copying one pre-patched file and adjusting two paths.  Use
+**Option B** (manual patch) if your Pressbooks version differs from ours and
+the drop-in copy causes issues.  Move to **Option C** (mu-plugin) when you want
+the logic to survive Pressbooks core updates.
 
 > **MacGyver note** — this setup is intentionally provisional and targets a
 > specific internal instance used for PDF generation and author training.  The
@@ -19,7 +21,7 @@ hack) — it requires editing one file and nothing else.  Move to **Option B**
 
 ---
 
-## 1. Server prerequisites (both options)
+## 1. Server prerequisites (all options)
 
 All commands that follow must be run as (or be accessible to) the web-server
 user — `www-data` on most Debian/Ubuntu installs.
@@ -78,11 +80,79 @@ sudo -u www-data node /opt/pressbooks-export-tools/src/pressbooks_export/math/ba
 
 ---
 
-## Option A — Self-contained hack (edit one file, no mu-plugin)
+## Option A — Drop-in file copy (fastest, no scripting needed)
 
-This is the fastest path.  All the logic lives inline inside `class-pdf.php`.
+`docs/class-pdf.php` in this repository is a fully pre-patched copy of
+Pressbooks' `inc/modules/export/prince/class-pdf.php`.  It is the same file
+you would get by running the Python patch script on the Pressbooks source, but
+with everything already applied so you can skip the patch tooling entirely.
 
-### A1. Apply the patch with the Python script (recommended)
+### A1. Adjust the two binary paths
+
+Open `docs/class-pdf.php` and find the two lines marked `← full path to`:
+
+```php
+$_pbet_bin     = '/opt/pb-venv/bin/pb-export';          // ← full path to pb-export
+$_pbet_postbin = '/opt/pb-venv/bin/pb-postprocess-pdf'; // ← full path to pb-postprocess-pdf
+```
+
+Update them to match your install if the binaries live somewhere else, then save.
+
+### A2. Back up and copy
+
+```bash
+# Back up the original
+cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
+   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak
+
+# Drop in the pre-patched copy
+cp /opt/pressbooks-export-tools/docs/class-pdf.php \
+   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+### A3. Verify syntax
+
+```bash
+php -l /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+Expected output: `No syntax errors detected in ...`
+
+### A4. Test an export
+
+1. Log into Pressbooks and open any book.
+2. Go to **Export** and click **Export your book** with **Print PDF (Prince)** selected.
+3. While it runs, tail the debug log in another terminal:
+   ```bash
+   tail -f /var/www/html/wp-content/debug.log | grep pb-export-tools
+   ```
+4. You should see:
+   ```
+   [pb-export-tools] HTML pre-processing succeeded.
+   [pb-export-tools] PDF/UA-2 post-processing complete: /var/www/html/wp-content/uploads/...pdf
+   ```
+
+### A5. Rolling back
+
+```bash
+cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak \
+   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+> **Version note** — `docs/class-pdf.php` was generated against the Pressbooks
+> `dev` branch at the time this repository was last updated.  If Pressbooks has
+> received upstream changes to `class-pdf.php` since then, use Option B (the
+> Python patch script) instead.
+
+---
+
+## Option B — Self-contained patch script (handles version differences)
+
+Use this when Option A produces a PHP syntax error or behaves unexpectedly
+because your Pressbooks version differs from the one `docs/class-pdf.php` was
+built against.
+
+### B1. Apply the patch with the Python script (recommended)
 
 `docs/apply-class-pdf-patch.py` finds the target line by content rather than by
 line number or surrounding context, so it works even when the file differs
@@ -122,7 +192,7 @@ sudo -u apache cp \
     /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
 ```
 
-### A2. Manual fallback (if you prefer not to run Python as apache)
+### B2. Manual fallback (if you prefer not to run Python as apache)
 
 Find the file:
 
@@ -263,10 +333,10 @@ if ( $_pbet_html_body === false || $_pbet_html_body === '' ) {
 // =========================================================================
 ```
 
-### A3. Verify the file has no PHP syntax errors
+### B3. Verify the file has no PHP syntax errors
 
-> **Note:** the Python script (A1) runs this automatically.  Only needed after a
-> manual edit (A2).
+> **Note:** the Python script (B1) runs this automatically.  Only needed after a
+> manual edit (B2).
 
 ```bash
 php -l /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
@@ -276,7 +346,7 @@ Expected output: `No syntax errors detected in ...`
 
 If you see a parse error, restore the backup (`cp class-pdf.php.bak class-pdf.php`) and check that you pasted the block cleanly without leaving the original line in place.
 
-### A4. Test an export
+### B4. Test an export
 
 1. Log into Pressbooks and open any book.
 2. Go to **Export** and click **Export your book** with **Print PDF (Prince)** selected.
@@ -293,7 +363,7 @@ If you see a parse error, restore the backup (`cp class-pdf.php.bak class-pdf.ph
    **File → Properties → Description** — the book title should appear in the
    title bar (DisplayDocTitle fix).
 
-### A5. Enabling spoken alt text later
+### B5. Enabling spoken alt text later
 
 When Node.js and SRE are installed and verified, uncomment the one line in the
 block above:
@@ -310,7 +380,7 @@ Change it to:
 
 No other changes needed.
 
-### A6. Rolling back
+### B6. Rolling back
 
 To remove the hack entirely and restore original behaviour:
 
@@ -321,12 +391,12 @@ cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-p
 
 ---
 
-## Option B — mu-plugin approach (survives Pressbooks updates)
+## Option C — mu-plugin approach (survives Pressbooks updates)
 
-Use this when Option A is confirmed working and you want the logic to live
+Use this when Option A or B is confirmed working and you want the logic to live
 outside Pressbooks core so it survives future `composer update` runs.
 
-### B1. Install the mu-plugin
+### C1. Install the mu-plugin
 
 ```bash
 cp /opt/pressbooks-export-tools/mu-plugins/pb-export-postprocess.php \
@@ -335,7 +405,7 @@ cp /opt/pressbooks-export-tools/mu-plugins/pb-export-postprocess.php \
 
 Must-use plugins load automatically — no activation step is needed.
 
-### B2. Apply the minimal class-pdf.php patch
+### C2. Apply the minimal class-pdf.php patch
 
 Replace the same `convert_file_to_file` line with this much shorter block
 (all the logic now lives in the mu-plugin):
@@ -359,7 +429,7 @@ do_action( 'pb_export_tools_cleanup_temp_html', $_pb_et_html_for_prince, $_pb_et
 @unlink( $_pb_et_tmp_html );
 ```
 
-### B3. Configure binary paths
+### C3. Configure binary paths
 
 Visit **Dashboard → Settings → PB Export Tools** and enter the full paths:
 
