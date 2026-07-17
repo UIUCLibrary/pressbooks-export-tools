@@ -137,6 +137,7 @@ class Pdf extends Export {
 		$prince->setHTML( true );
 		$prince->setCompress( true );
 		$prince->setHttpTimeout( max( ini_get( 'max_execution_time' ), 30 ) );
+		$prince->setInputType( 'xml' );
 		if ( defined( 'WP_ENV' ) && ( WP_ENV === 'development' ) ) {
 			$prince->setInsecure( true );
 		}
@@ -259,6 +260,16 @@ class Pdf extends Export {
 			$_pbet_clean_size   = $_pbet_clean_exists ? filesize( $_pbet_clean_html ) : 0;
 			error_log( '[pb-export-tools] Step 2: clean.html exists=' . ( $_pbet_clean_exists ? 'yes' : 'no' )
 				. ' size=' . $_pbet_clean_size . ' bytes' );
+
+			// Count math elements in clean.html to confirm MathML conversion worked.
+			if ( $_pbet_clean_exists && $_pbet_clean_size > 0 ) {
+				$_pbet_clean_content = file_get_contents( $_pbet_clean_html );
+				$_pbet_math_count    = preg_match_all( '/<math[\s>]/', $_pbet_clean_content );
+				$_pbet_img_count     = preg_match_all( '/class="[^"]*\blatex\b/', $_pbet_clean_content );
+				unset( $_pbet_clean_content );
+				error_log( '[pb-export-tools] Step 2: clean.html math elements=<math>:' . $_pbet_math_count
+					. ' remaining <img class=latex>:' . $_pbet_img_count );
+			}
 
 			if ( $_pbet_exit_code === 0 && $_pbet_clean_exists && $_pbet_clean_size > 0 ) {
 				$_pbet_html_for_prince = $_pbet_clean_html;

@@ -14,4 +14,7 @@ class Latex2MathMLBackend(MathBackend):
                 "latex2mathml is not installed. Install the '[math]' extra to use this backend."
             ) from exc
         display_value = "block" if display else "inline"
-        return convert(latex, display=display_value)
+        try:
+            return convert(latex, display=display_value)
+        except Exception as exc:
+            raise MathConversionError(f"latex2mathml conversion failed: {exc}") from exc
