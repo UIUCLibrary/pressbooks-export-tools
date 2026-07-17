@@ -80,12 +80,32 @@ sudo -u www-data node /opt/pressbooks-export-tools/src/pressbooks_export/math/ba
 
 ---
 
-## Option A — Drop-in file copy (fastest, no scripting needed)
+## Digital PDF vs Print PDF
+
+Pressbooks registers **two** separate Prince PDF export types:
+
+| Export type | PHP class | Source file |
+|---|---|---|
+| Digital PDF (Prince) | `Pdf` | `class-pdf.php` |
+| Print PDF (Prince) | `PdfPrint` | `class-pdfprint.php` (if present) |
+
+Both classes contain the same `$prince->convert_file_to_file($this->url, …)`
+call that must be replaced.  **If you only patch `class-pdf.php`, the
+tools pipeline runs on digital PDF exports but is silently bypassed for print
+PDF** (no `[pb-export-tools]` entries appear in the log for print exports).
+
+Option A (drop-in copy) only covers `class-pdf.php`.  Use **Option B** (the
+Python patch script pointed at the whole `prince/` directory) to patch all
+applicable classes in one step — this is now the recommended approach.
+
+---
+
+## Option A — Drop-in file copy (digital PDF only)
 
 `docs/class-pdf.php` in this repository is a fully pre-patched copy of
-Pressbooks' `inc/modules/export/prince/class-pdf.php`.  It is the same file
-you would get by running the Python patch script on the Pressbooks source, but
-with everything already applied so you can skip the patch tooling entirely.
+Pressbooks' `inc/modules/export/prince/class-pdf.php`.  It covers the
+**digital PDF** export only.  If you also need to patch the print PDF class,
+use Option B instead.
 
 ### A1. Adjust the two binary paths
 
@@ -170,50 +190,66 @@ cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-p
 
 ---
 
-## Option B — Self-contained patch script (handles version differences)
+## Option B — Self-contained patch script (recommended for all installs)
 
-Use this when Option A produces a PHP syntax error or behaves unexpectedly
-because your Pressbooks version differs from the one `docs/class-pdf.php` was
-built against.
+Use this to patch both the digital PDF class and the print PDF class (if
+present) in one step.  The script finds the target line by content rather than
+by line number, so it survives minor version divergence that defeats `patch -p1`.
+It detects tab vs space indentation automatically, backs up the originals, and
+runs `php -l` to verify syntax.
 
-### B1. Apply the patch with the Python script (recommended)
+### B1. Apply the patch with the Python script
 
-`docs/apply-class-pdf-patch.py` finds the target line by content rather than by
-line number or surrounding context, so it works even when the file differs
-slightly from the version we tested against.  It detects tab vs space
-indentation automatically, backs up the original, and runs `php -l` to verify
-syntax before finishing.
+**Point the script at the `prince/` directory** to patch every PHP file that
+contains the target call (typically `class-pdf.php` for digital PDF and
+`class-pdfprint.php` for print PDF):
 
 ```bash
-# Dry-run first — prints what the file would look like after patching:
-sudo -u apache python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
-    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
-    --dry-run | diff \
-    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php -
+# Dry-run first — lists patchable files and prints their patched content:
+sudo -u www-data python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/ \
+    --dry-run
 
-# Apply (creates a .bak file and runs php -l automatically):
-sudo -u apache python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
-    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+# Apply (creates .bak files and runs php -l for each file automatically):
+sudo -u www-data python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/
 ```
 
-Expected stderr output on success:
+Expected stderr output on success (two files patched):
 
 ```
+Found 2 patchable file(s) in …/prince/:
+  class-pdf.php
+  class-pdfprint.php
+
+── Patching …/class-pdf.php ──
 Target at line 147  |  i0='\t\t'  unit='\t'
 Backup → …/class-pdf.php.bak
 Written → …/class-pdf.php
 No syntax errors detected in …/class-pdf.php
+
+── Patching …/class-pdfprint.php ──
+Target at line 89  |  i0='\t\t'  unit='\t'
+Backup → …/class-pdfprint.php.bak
+Written → …/class-pdfprint.php
+No syntax errors detected in …/class-pdfprint.php
 ```
 
-If the line number or indentation unit differ on your install the script still
-works — it will just report different values for `i0` and `unit`.
+If your Pressbooks install only has `class-pdf.php` (no separate print class),
+the script will report one file found and patch only that one.
 
-To roll back:
+To patch a single file instead of the whole directory:
 
 ```bash
-sudo -u apache cp \
-    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak \
+sudo -u www-data python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
     /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+To roll back all patched files:
+
+```bash
+PRINCE=/var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince
+for f in "$PRINCE"/*.php.bak; do cp "$f" "${f%.bak}"; done
 ```
 
 ### B2. Manual fallback (if you prefer not to run Python as apache)

@@ -1,39 +1,56 @@
 #!/usr/bin/env python3
 """
-apply-class-pdf-patch.py — whitespace-agnostic patcher for class-pdf.php
+apply-class-pdf-patch.py — whitespace-agnostic patcher for Pressbooks Prince PDF classes
 
-Replaces the single `$prince->convert_file_to_file(...)` call in Pressbooks'
-inc/modules/export/prince/class-pdf.php with the full pressbooks-export-tools
-pre/post-processing block.
+Replaces the `$prince->convert_file_to_file(...)` call in Pressbooks'
+Prince PDF export classes (class-pdf.php, class-pdfprint.php, etc.) with the
+full pressbooks-export-tools pre/post-processing block.
+
+Both the digital PDF class (class-pdf.php) and the print PDF class
+(class-pdfprint.php, if present) contain the same target call and must both be
+patched for the tools pipeline to run on all export types.
 
 Works regardless of tab vs space indentation and regardless of exact line
 number, so it survives minor version divergence that defeats `patch -p1`.
 
 Usage
 -----
-  python3 apply-class-pdf-patch.py <path-to-class-pdf.php> [options]
+  python3 apply-class-pdf-patch.py <path-or-dir> [options]
+
+  <path-or-dir> may be:
+    - A single PHP file (e.g. class-pdf.php) to patch just that file.
+    - A directory (e.g. .../inc/modules/export/prince/) to auto-discover and
+      patch every PHP file in that directory that contains the target call.
+      This is the recommended form when both digital and print PDF must be
+      patched.
 
 Options
   --pb-export PATH          Full path to pb-export binary
                             (default: /opt/pb-venv/bin/pb-export)
   --pb-postprocess PATH     Full path to pb-postprocess-pdf binary
                             (default: /opt/pb-venv/bin/pb-postprocess-pdf)
-  --dry-run                 Print the modified file to stdout; do not write it
-  --no-backup               Skip creating a .bak file
+  --dry-run                 Print the modified file(s) to stdout; do not write
+  --no-backup               Skip creating .bak files
   -h / --help               Show this help
 
 Examples
 --------
-  # Dry-run first to see what would change:
-  python3 apply-class-pdf-patch.py class-pdf.php --dry-run | diff class-pdf.php -
+  # Patch the entire prince/ directory (digital + print PDF in one step):
+  sudo -u www-data python3 apply-class-pdf-patch.py \
+      /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/
 
-  # Apply with default binary paths:
-  sudo -u apache python3 apply-class-pdf-patch.py \
+  # Dry-run on the directory first to see what would change:
+  python3 apply-class-pdf-patch.py \
+      /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/ \
+      --dry-run
+
+  # Patch only one file (original behaviour):
+  sudo -u www-data python3 apply-class-pdf-patch.py \
       /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
 
   # Apply with custom binary paths:
-  sudo -u apache python3 apply-class-pdf-patch.py \
-      /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
+  sudo -u www-data python3 apply-class-pdf-patch.py \
+      /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/ \
       --pb-export /usr/local/bin/pb-export \
       --pb-postprocess /usr/local/bin/pb-postprocess-pdf
 """
@@ -286,12 +303,34 @@ def apply_patch(
     return 0
 
 
+def find_patchable_files(directory: Path) -> list[Path]:
+    """
+    Return every PHP file in *directory* (non-recursive) that contains the
+    target ``convert_file_to_file($this->url, …)`` call and has not already
+    been patched.
+    """
+    candidates = []
+    for php_file in sorted(directory.glob("*.php")):
+        text = php_file.read_text(encoding="utf-8")
+        if TARGET_PATTERN.search(text) and ALREADY_PATCHED_MARKER not in text:
+            candidates.append(php_file)
+    return candidates
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("php_file", type=Path, help="Path to class-pdf.php")
+    parser.add_argument(
+        "path",
+        type=Path,
+        help=(
+            "Path to a single PHP file (e.g. class-pdf.php) OR a directory "
+            "(e.g. .../prince/) to auto-discover and patch every patchable "
+            "PHP file it contains."
+        ),
+    )
     parser.add_argument(
         "--pb-export",
         default="/opt/pb-venv/bin/pb-export",
@@ -307,26 +346,60 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print modified file to stdout without writing",
+        help="Print modified file(s) to stdout without writing",
     )
     parser.add_argument(
         "--no-backup",
         action="store_true",
-        help="Skip creating a .bak file",
+        help="Skip creating .bak files",
     )
     args = parser.parse_args()
 
-    if not args.php_file.is_file():
-        print(f"ERROR: {args.php_file} does not exist or is not a file.", file=sys.stderr)
+    target: Path = args.path
+
+    # ---- resolve the list of files to patch ---------------------------------
+    if target.is_dir():
+        php_files = find_patchable_files(target)
+        if not php_files:
+            print(
+                f"No patchable PHP files found in {target}.\n"
+                "Either the target call is absent or all matching files are "
+                "already patched.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"Found {len(php_files)} patchable file(s) in {target}:",
+            file=sys.stderr,
+        )
+        for f in php_files:
+            print(f"  {f.name}", file=sys.stderr)
+
+    elif target.is_file():
+        php_files = [target]
+
+    else:
+        print(
+            f"ERROR: {target} does not exist or is neither a file nor a directory.",
+            file=sys.stderr,
+        )
         return 1
 
-    return apply_patch(
-        php_file=args.php_file,
-        pb_export=args.pb_export,
-        pb_postprocess=args.pb_postprocess,
-        dry_run=args.dry_run,
-        no_backup=args.no_backup,
-    )
+    # ---- patch each file in turn --------------------------------------------
+    overall_rc = 0
+    for php_file in php_files:
+        print(f"\n── Patching {php_file} ──", file=sys.stderr)
+        rc = apply_patch(
+            php_file=php_file,
+            pb_export=args.pb_export,
+            pb_postprocess=args.pb_postprocess,
+            dry_run=args.dry_run,
+            no_backup=args.no_backup,
+        )
+        if rc != 0:
+            overall_rc = rc
+
+    return overall_rc
 
 
 if __name__ == "__main__":
