@@ -1,8 +1,8 @@
 <?php
 /**
- * Pre-patched copy of Pressbooks' inc/modules/export/prince/class-pdf.php.
+ * Drop-in replacement for Pressbooks' inc/modules/export/prince/class-pdf.php.
  *
- * Source: https://github.com/pressbooks/pressbooks (dev branch, GPLv3)
+ * Source: https://github.com/UIUCLibrary/pressbooks (GPLv3)
  * Modifications: pressbooks-export-tools accessibility pre/post-processing block
  *   inserted in place of the original convert_file_to_file() call.
  *
@@ -14,14 +14,9 @@
  *      <wordpress-root>/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
  *    (Back up the original first.)
  * 3. Run `php -l class-pdf.php` to confirm no syntax errors.
- * 4. IMPORTANT: clear PHP OPcache after deploying, otherwise the WP-Cron
- *    background job will keep running the stale compiled bytecode.  The
- *    symptom is [pb-debug] __construct() appearing in the log while
- *    [pb-debug] convert() CALLED never appears — both run in different
- *    PHP processes and OPcache can serve different versions to each.
- *
- *    Clear OPcache:  wp eval 'opcache_reset();'
- *    Or restart:     sudo systemctl restart php8.3-fpm   (adjust version)
+ * 4. Clear PHP OPcache after deploying:
+ *      wp eval 'opcache_reset();'
+ *    Or restart:  sudo systemctl restart php8.3-fpm   (adjust version)
  *
  * To roll back, restore your backup or re-install the pressbooks plugin.
  *
@@ -32,12 +27,9 @@
 namespace Pressbooks\Modules\Export\Prince;
 
 use function Pressbooks\Sanitize\normalize_css_urls;
-use function Pressbooks\Utility\get_contents;
-use function Pressbooks\Utility\put_contents;
-use Generator;
+use PressbooksMix\Assets;
 use Pressbooks\Container;
 use Pressbooks\Modules\Export\Export;
-use PrinceXMLPhp\PrinceWrapper;
 
 class Pdf extends Export {
 
@@ -46,51 +38,50 @@ class Pdf extends Export {
 	 *
 	 * @var string
 	 */
-	public string $url;
+	public $url;
 
 	/**
 	 * Fullpath to log file used by Prince.
 	 *
 	 * @var string
 	 */
-	public string $logfile;
+	public $logfile;
 
 	/**
 	 * Fullpath to book CSS file.
 	 *
 	 * @var string
 	 */
-	protected string|false $exportStylePath;
+	protected $exportStylePath;
 
 	/**
 	 * Fullpath to book JavaScript file.
 	 *
 	 * @var string
 	 */
-	protected string|false $exportScriptPath;
+	protected $exportScriptPath;
 
 	/**
 	 * CSS overrides
 	 *
 	 * @var string
 	 */
-	protected string $cssOverrides;
+	protected $cssOverrides;
 
 	/**
 	 * @var string
 	 */
-	protected string $pdfProfile;
+	protected $pdfProfile;
 
 	/**
 	 * @var string
 	 */
-	protected string $pdfOutputIntent;
+	protected $pdfOutputIntent;
 
 	/**
 	 * @param array $args
 	 */
-	public function __construct( array $args ) {
-		error_log( '[pb-debug] Pdf::__construct() called — class=' . get_class( $this ) );
+	function __construct( array $args ) {
 
 		if ( ! defined( 'PB_PRINCE_COMMAND' ) ) {
 			define( 'PB_PRINCE_COMMAND', '/usr/bin/prince' );
@@ -106,172 +97,21 @@ class Pdf extends Export {
 		$md5 = $this->nonce( $timestamp );
 		$this->url = home_url() . "/format/xhtml?timestamp={$timestamp}&hashkey={$md5}";
 
-		error_log( '[pb-debug] Pdf::__construct() exportStylePath=' . var_export( $this->exportStylePath, true )
-			. ' exportScriptPath=' . var_export( $this->exportScriptPath, true )
-			. ' pdfProfile=' . var_export( $this->pdfProfile, true )
-			. ' pdfOutputIntent=' . var_export( $this->pdfOutputIntent, true )
-			. ' url=' . $this->url );
-
 		$this->themeOptionsOverrides();
-		error_log( '[pb-debug] Pdf::__construct() done' );
 	}
 
 	/**
-	 * Add $this->url as additional log info, fallback to parent.
-	 *
-	 * @param $message
-	 * @param array $more_info (unused, overridden)
-	 */
-	public function logError( $message, array $more_info = [] ): void {
-		error_log( '[pb-debug] Pdf::logError() called — class=' . get_class( $this ) . ' message=' . $message );
-
-		$more_info['url'] = $this->url;
-
-		parent::logError( $message, $more_info );
-	}
-
-	/**
-	 * @return string
-	 */
-	protected function generateFileName() {
-		error_log( '[pb-debug] Pdf::generateFileName() called — class=' . get_class( $this ) );
-		return $this->timestampedFileName( '.pdf' );
-	}
-
-	/**
-	 * Verify if body is actual PDF
-	 *
-	 * @param string $file
+	 * Create $this->outputPath
 	 *
 	 * @return bool
 	 */
-	protected function isPdf( $file ): bool {
-		error_log( '[pb-debug] Pdf::isPdf() called — class=' . get_class( $this ) . ' file=' . $file );
+	function convert() {
 
-		$mime = static::mimeType( $file );
-
-		return ( str_contains( $mime, 'application/pdf' ) );
-	}
-
-	/**
-	 * @return string
-	 */
-	protected function getPdfProfile(): string {
-		$result = defined( 'PB_PDF_PROFILE' ) ? PB_PDF_PROFILE : '';
-		error_log( '[pb-debug] Pdf::getPdfProfile() called — class=' . get_class( $this ) . ' result=' . var_export( $result, true ) );
-		return $result;
-	}
-
-	/**
-	 * @return string
-	 */
-	protected function getPdfOutputIntent(): string {
-		$result = defined( 'PB_PDF_OUTPUT_INTENT' ) ? PB_PDF_OUTPUT_INTENT : '';
-		error_log( '[pb-debug] Pdf::getPdfOutputIntent() called — class=' . get_class( $this ) . ' result=' . var_export( $result, true ) );
-		return $result;
-	}
-
-	/**
-	 * Return kneaded CSS string
-	 *
-	 * @return string
-	 * @throws ContainerExceptionInterface
-	 * @throws NotFoundExceptionInterface
-	 */
-	protected function kneadCss(): string {
-		error_log( '[pb-debug] Pdf::kneadCss() called — class=' . get_class( $this ) );
-
-		$styles = Container::get( 'Styles' );
-
-		$scss = get_contents( $this->exportStylePath );
-
-		$custom_styles = $styles->getPrincePost();
-		if ( $custom_styles && ! empty( $custom_styles->post_content ) ) {
-			// append the user's custom styles to the theme stylesheet prior to compilation
-			$scss .= "\n" . $custom_styles->post_content;
-		}
-
-		$css = $styles->customize( 'prince', $scss, $this->cssOverrides );
-
-		$css = normalize_css_urls( $css, $this->urlPath() );
-
-		if ( WP_DEBUG ) {
-			Container::get( 'Sass' )->debug( $css, $scss, 'prince' );
-		}
-
-		return $css;
-	}
-
-	/**
-	 * Convert the directory containing `$this->exportStylePath` to a URL that can be used by services like DocRaptor
-	 * Useful for sending assets like images/asterisk.png, images/em-dash.png, ...
-	 *
-	 * @return string
-	 * @throws ContainerExceptionInterface
-	 * @throws NotFoundExceptionInterface
-	 */
-	protected function urlPath() {
-		error_log( '[pb-debug] Pdf::urlPath() called — class=' . get_class( $this ) );
-		$dir = str_replace( Container::get( 'Styles' )->getDir(), '', pathinfo( $this->exportStylePath, PATHINFO_DIRNAME ) );
-		$dir = ltrim( $dir, '/' );
-		$url_path = trailingslashit( get_stylesheet_directory_uri() ) . $dir;
-		return set_url_scheme( $url_path );
-	}
-
-	/**
-	 * Override based on Theme Options
-	 */
-	protected function themeOptionsOverrides(): void {
-		error_log( '[pb-debug] Pdf::themeOptionsOverrides() called — class=' . get_class( $this ) );
-
-		// --------------------------------------------------------------------
-		// CSS
-
-		$scss = '';
-		$scss = apply_filters( 'pb_pdf_css_override', $scss ) . "\n";
-
-		// Copyright
-		// Please be kind, help Pressbooks grow by leaving this on!
-		if ( empty( $GLOBALS['PB_SECRET_SAUCE']['TURN_OFF_FREEBIE_NOTICES_PDF'] ) ) {
-			$freebie_notice = __( 'This book was produced with Pressbooks (https://pressbooks.com) and rendered with Prince.', 'pressbooks' );
-			$scss .= '#copyright-page .ugc > p:last-of-type::after { display:block; margin-top: 1em; content: "' . $freebie_notice . '" }' . "\n";
-		}
-
-		$this->cssOverrides = $scss;
-
-		// --------------------------------------------------------------------
-		// Hacks
-
-		$hacks = [];
-		$hacks = apply_filters( 'pb_pdf_hacks', $hacks );
-
-		// Append endnotes to URL?
-		if ( isset( $hacks['pdf_footnotes_style'] ) && 'endnotes' === $hacks['pdf_footnotes_style'] ) {
-			$this->url .= '&endnotes=true';
-			$_GET['endnotes'] = 'true';
-		}
-
-	}
-
-	/**
-	 * For expensive functions we use a generator to allow the caller to yield control back to the event loop.
-	 *
-	 * @return Generator
-	 * @throws ContainerExceptionInterface
-	 * @throws NotFoundExceptionInterface
-	 * @throws \Exception
-	 */
-	public function convert(): Generator {
-		error_log( '[pb-debug] Pdf::convert() called — class=' . get_class( $this ) );
-
+		// Sanity check
 		if ( empty( $this->exportStylePath ) || ! is_file( $this->exportStylePath ) ) {
-			error_log( '[pb-debug] Pdf::convert() ERROR: exportStylePath not set or not a file — aborting.' );
 			$this->logError( '$this->exportStylePath must be set before calling convert().' );
-			yield 'error' => '$this->exportStylePath must be set before calling convert().';
 			return false;
 		}
-
-		yield 35 => __( 'Setting up conversion...', 'pressbooks' );
 
 		// Set logfile
 		$this->logfile = $this->createTmpFile();
@@ -280,46 +120,39 @@ class Pdf extends Export {
 		$filename = $this->generateFileName();
 		$this->outputPath = $filename;
 
-		yield 40 => __( 'Loading fonts...', 'pressbooks' );
 		// Fonts
 		Container::get( 'GlobalTypography' )->getFonts();
 
-		yield 50 => __( 'Generating CSS...', 'pressbooks' );
 		// CSS
 		$this->truncateExportStylesheets( 'prince' );
 		$timestamp = time();
 		$css = $this->kneadCss();
 		$css_file = Container::get( 'Sass' )->pathToUserGeneratedCss() . "/prince-$timestamp.css";
-		$scoped_file = Container::get( 'Sass' )->pathToUserGeneratedCss() . '/scopedstyles.css';
-		put_contents( $css_file, $css );
+		\Pressbooks\Utility\put_contents( $css_file, $css );
 
-		yield 55 => __( 'Loading Converter...', 'pressbooks' );
-		// Initialize Prince
-		$prince = new PrinceWrapper( PB_PRINCE_COMMAND );
+		// --------------------------------------------------------------------
+		// Save PDF as file in exports folder
+
+		$prince = new \PrinceXMLPhp\PrinceWrapper( PB_PRINCE_COMMAND );
 		$prince->setHTML( true );
 		$prince->setCompress( true );
-		$prince->setHttpTimeout( defined( 'WP_TESTS_MULTISITE' ) ? 5 : 600 ); // 5 seconds for tests, 10 minutes for production
-		$prince->setInputType( 'xml' );
+		$prince->setHttpTimeout( max( ini_get( 'max_execution_time' ), 30 ) );
 		if ( defined( 'WP_ENV' ) && ( WP_ENV === 'development' ) ) {
 			$prince->setInsecure( true );
 		}
 
-		yield 56 => __( 'Setting up PDF options...', 'pressbooks' );
-		// PDF Profile configuration
 		if ( $this->pdfProfile && $this->pdfOutputIntent ) {
 			$prince->setPDFProfile( $this->pdfProfile );
 			$prince->setPDFOutputIntent( $this->pdfOutputIntent );
 		} elseif ( stripos( get_class( $this ), 'print' ) === false && empty( $this->pdfProfile ) ) {
+			// PDF for digital distribution without any PB_PDF_PROFILE
+			// Use PDF/UA-1, enhanced for accessibility.
 			$prince->setPDFProfile( 'PDF/UA-1' );
 		}
 
-		yield 60 => __( 'Adding stylesheets and scripts...', 'pressbooks' );
-		// Add resources
 		$prince->addStyleSheet( $css_file );
-		$prince->addStyleSheet( $scoped_file );
-		/** @var Assets $assets */
-		$assets = app( 'Assets' );
-		$js_path = $assets->getAssetUrl( 'assets/src/scripts/export-footnotes.js' );
+		$assets = new Assets( 'pressbooks', 'plugin' );
+		$js_path = $assets->getPath( 'scripts/export-footnotes.js' );
 		$prince->addScript( $js_path );
 
 		if ( $this->exportScriptPath ) {
@@ -327,8 +160,6 @@ class Pdf extends Export {
 		}
 		$prince->setLog( $this->logfile );
 
-		yield 65 => __( 'Creating file...', 'pressbooks' );
-		// Convert
 		// =========================================================================
 		// pressbooks-export-tools: accessibility pre/post-processing
 		// Adjust the two paths below to match your install, then leave everything else.
@@ -363,8 +194,6 @@ class Pdf extends Export {
 		} else {
 			error_log( '[pb-export-tools] Step 1 OK: fetched ' . strlen( $_pbet_html_body ) . ' bytes.' );
 
-			// Fix bare & characters that would break XML parsing.
-			$_pbet_html_body = preg_replace( '/&(?![a-zA-Z]{2,6};|#\d{2,5};)/', '&amp;', $_pbet_html_body );
 			// Inject unique id="chapter-N" on every h1.chapter-title2 element.
 			$_pbet_ch_counter = 0;
 			$_pbet_html_body  = preg_replace_callback(
@@ -484,26 +313,157 @@ class Pdf extends Export {
 		}
 		// =========================================================================
 
+		// Prince XML is very flexible. There could be errors but Prince will still render a PDF.
+		// We want to log those errors but we won't alert the user.
 		if ( is_countable( $msg ) && count( $msg ) ) {
-			$this->logError( get_contents( $this->logfile ), [ 'warning' => 1 ] );
-			yield 80 => __( 'Conversion completed with warnings.', 'pressbooks' );
-		} else {
-			yield 80 => __( 'Conversion completed successfully.', 'pressbooks' );
+			$this->logError( \Pressbooks\Utility\get_contents( $this->logfile ), [ 'warning' => 1 ] );
 		}
 
 		return $retval;
 	}
 
-	public function validate(): Generator {
-		error_log( '[pb-debug] Pdf::validate() called — class=' . get_class( $this ) . ' outputPath=' . ( $this->outputPath ?? 'NOT SET' ) );
-		yield 90 => __( 'Validating PDF.', 'pressbooks' );
+	/**
+	 * Check the sanity of $this->outputPath
+	 *
+	 * @return bool
+	 */
+	function validate() {
+		// Is this a PDF?
 		if ( ! $this->isPdf( $this->outputPath ) ) {
-			$this->logError( get_contents( $this->logfile ) );
-			yield 'error' => __( 'PDF validation failed.', 'pressbooks' );
+			$this->logError( \Pressbooks\Utility\get_contents( $this->logfile ) );
 			return false;
 		}
-
-		yield 100 => __( 'PDF Validation successful.', 'pressbooks' );
 		return true;
 	}
+
+	/**
+	 * Add $this->url as additional log info, fallback to parent.
+	 *
+	 * @param $message
+	 * @param array $more_info (unused, overridden)
+	 */
+	function logError( $message, array $more_info = [] ) {
+
+		$more_info['url'] = $this->url;
+
+		parent::logError( $message, $more_info );
+	}
+
+	/**
+	 * @return string
+	 */
+	protected function generateFileName() {
+		return $this->timestampedFileName( '.pdf' );
+	}
+
+	/**
+	 * Verify if body is actual PDF
+	 *
+	 * @param string $file
+	 *
+	 * @return bool
+	 */
+	protected function isPdf( $file ) {
+
+		$mime = static::mimeType( $file );
+
+		return ( strpos( $mime, 'application/pdf' ) !== false );
+	}
+
+	/**
+	 * @return string
+	 */
+	protected function getPdfProfile() {
+		if ( defined( 'PB_PDF_PROFILE' ) ) {
+			return PB_PDF_PROFILE;
+		}
+		return '';
+	}
+
+	/**
+	 * @return string
+	 */
+	protected function getPdfOutputIntent() {
+		if ( defined( 'PB_PDF_OUTPUT_INTENT' ) ) {
+			return PB_PDF_OUTPUT_INTENT;
+		}
+		return '';
+	}
+
+	/**
+	 * Return kneaded CSS string
+	 *
+	 * @return string
+	 */
+	protected function kneadCss() {
+
+		$styles = Container::get( 'Styles' );
+
+		$scss = \Pressbooks\Utility\get_contents( $this->exportStylePath );
+
+		$custom_styles = $styles->getPrincePost();
+		if ( $custom_styles && ! empty( $custom_styles->post_content ) ) {
+			// append the user's custom styles to the theme stylesheet prior to compilation
+			$scss .= "\n" . $custom_styles->post_content;
+		}
+
+		$css = $styles->customize( 'prince', $scss, $this->cssOverrides );
+
+		$css = normalize_css_urls( $css, $this->urlPath() );
+
+		if ( WP_DEBUG ) {
+			Container::get( 'Sass' )->debug( $css, $scss, 'prince' );
+		}
+
+		return $css;
+	}
+
+	/**
+	 * Convert the directory containing `$this->exportStylePath` to a URL that can be used by services like DocRaptor
+	 * Useful for sending assets like images/asterisk.png, images/em-dash.png, ...
+	 *
+	 * @return string
+	 */
+	protected function urlPath() {
+		$dir = str_replace( Container::get( 'Styles' )->getDir(), '', pathinfo( $this->exportStylePath, PATHINFO_DIRNAME ) );
+		$dir = ltrim( $dir, '/' );
+		$url_path = trailingslashit( get_stylesheet_directory_uri() ) . $dir;
+		$url_path = set_url_scheme( $url_path );
+
+		return $url_path;
+	}
+
+	/**
+	 * Override based on Theme Options
+	 */
+	protected function themeOptionsOverrides() {
+
+		// --------------------------------------------------------------------
+		// CSS
+
+		$scss = '';
+		$scss = apply_filters( 'pb_pdf_css_override', $scss ) . "\n";
+
+		// Copyright
+		// Please be kind, help Pressbooks grow by leaving this on!
+		if ( empty( $GLOBALS['PB_SECRET_SAUCE']['TURN_OFF_FREEBIE_NOTICES_PDF'] ) ) {
+			$freebie_notice = __( 'This book was produced with Pressbooks (https://pressbooks.com) and rendered with Prince.', 'pressbooks' );
+			$scss .= '#copyright-page .ugc > p:last-of-type::after { display:block; margin-top: 1em; content: "' . $freebie_notice . '" }' . "\n";
+		}
+
+		$this->cssOverrides = $scss;
+
+		// --------------------------------------------------------------------
+		// Hacks
+
+		$hacks = [];
+		$hacks = apply_filters( 'pb_pdf_hacks', $hacks );
+
+		// Append endnotes to URL?
+		if ( isset( $hacks['pdf_footnotes_style'] ) && 'endnotes' === $hacks['pdf_footnotes_style'] ) {
+			$this->url .= '&endnotes=true';
+		}
+
+	}
+
 }
