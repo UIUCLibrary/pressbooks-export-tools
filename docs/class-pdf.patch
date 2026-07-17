@@ -1,9 +1,9 @@
 --- a/inc/modules/export/prince/class-pdf.php
 +++ b/inc/modules/export/prince/class-pdf.php
-@@ -283,7 +283,103 @@
- 
- 		yield 65 => __( 'Creating file...', 'pressbooks' );
- 		// Convert
+@@ -144,7 +144,103 @@
+ 			$prince->addScript( $this->exportScriptPath );
+ 		}
+ 		$prince->setLog( $this->logfile );
 -		$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
 +		// =========================================================================
 +		// pressbooks-export-tools: accessibility pre/post-processing
@@ -103,5 +103,5 @@
 +		}
 +		// =========================================================================
  
- 		if ( is_countable( $msg ) && count( $msg ) ) {
- 			$this->logError( get_contents( $this->logfile ), [ 'warning' => 1 ] );
+ 		// Prince XML is very flexible. There could be errors but Prince will still render a PDF.
+ 		// We want to log those errors but we won't alert the user.

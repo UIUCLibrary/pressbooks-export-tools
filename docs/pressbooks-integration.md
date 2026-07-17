@@ -82,6 +82,21 @@ sudo -u www-data node /opt/pressbooks-export-tools/src/pressbooks_export/math/ba
 
 This is the fastest path.  All the logic lives inline inside `class-pdf.php`.
 
+> **Patch file** — `docs/class-pdf.patch` in this repository contains a ready-made
+> unified diff generated against **UIUCLibrary/pressbooks commit `3d20cd3`**.
+> If your install is on that exact commit, skip steps A1–A3 and jump straight to A2:
+>
+> ```bash
+> cd /var/www/html/wp-content/plugins/pressbooks
+> cp inc/modules/export/prince/class-pdf.php \
+>    inc/modules/export/prince/class-pdf.php.bak
+> patch -p1 < /opt/pressbooks-export-tools/docs/class-pdf.patch
+> php -l inc/modules/export/prince/class-pdf.php
+> ```
+>
+> If `patch` reports a hunk failure the file has diverged; follow the manual
+> steps below instead.
+
 ### A1. Locate the file and the line to replace
 
 ```bash
@@ -103,10 +118,10 @@ grep -n "convert_file_to_file" \
   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
 ```
 
-You should see one hit, something like:
+You should see one hit.  On UIUCLibrary/pressbooks `3d20cd3` it is line 147:
 
 ```
-145:			$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
+147:		$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
 ```
 
 ### A2. Back up the file
