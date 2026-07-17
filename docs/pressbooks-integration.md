@@ -82,56 +82,75 @@ sudo -u www-data node /opt/pressbooks-export-tools/src/pressbooks_export/math/ba
 
 This is the fastest path.  All the logic lives inline inside `class-pdf.php`.
 
-> **Patch file** — `docs/class-pdf.patch` in this repository contains a ready-made
-> unified diff generated against **UIUCLibrary/pressbooks commit `3d20cd3`**.
-> If your install is on that exact commit, skip steps A1–A3 and jump straight to A2:
->
-> ```bash
-> cd /var/www/html/wp-content/plugins/pressbooks
-> cp inc/modules/export/prince/class-pdf.php \
->    inc/modules/export/prince/class-pdf.php.bak
-> patch -p1 < /opt/pressbooks-export-tools/docs/class-pdf.patch
-> php -l inc/modules/export/prince/class-pdf.php
-> ```
->
-> If `patch` reports a hunk failure the file has diverged; follow the manual
-> steps below instead.
+### A1. Apply the patch with the Python script (recommended)
 
-### A1. Locate the file and the line to replace
+`docs/apply-class-pdf-patch.py` finds the target line by content rather than by
+line number or surrounding context, so it works even when the file differs
+slightly from the version we tested against.  It detects tab vs space
+indentation automatically, backs up the original, and runs `php -l` to verify
+syntax before finishing.
 
 ```bash
-# Find the file (path varies by Pressbooks version and install layout).
+# Dry-run first — prints what the file would look like after patching:
+sudo -u apache python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
+    --dry-run | diff \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php -
+
+# Apply (creates a .bak file and runs php -l automatically):
+sudo -u apache python3 /opt/pressbooks-export-tools/docs/apply-class-pdf-patch.py \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+Expected stderr output on success:
+
+```
+Target at line 147  |  i0='\t\t'  unit='\t'
+Backup → …/class-pdf.php.bak
+Written → …/class-pdf.php
+No syntax errors detected in …/class-pdf.php
+```
+
+If the line number or indentation unit differ on your install the script still
+works — it will just report different values for `i0` and `unit`.
+
+To roll back:
+
+```bash
+sudo -u apache cp \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak \
+    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
+```
+
+### A2. Manual fallback (if you prefer not to run Python as apache)
+
+Find the file:
+
+```bash
 find /var/www/html/wp-content/plugins/pressbooks \
      -name "class-pdf.php" \
      -path "*/prince/*"
 ```
 
-Typical path:
-```
-/var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
-```
-
-Find the exact line number of the `convert_file_to_file` call:
+Find the exact target line:
 
 ```bash
 grep -n "convert_file_to_file" \
   /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
 ```
 
-You should see one hit.  On UIUCLibrary/pressbooks `3d20cd3` it is line 147:
+You should see exactly one hit (the unconditional original call):
 
 ```
 147:		$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
 ```
 
-### A2. Back up the file
+Back up the file:
 
 ```bash
 cp /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php \
    /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php.bak
 ```
-
-### A3. Open the file and find the block to replace
 
 Open the file in your editor.  Find this **exact line** (it is the only call to
 `convert_file_to_file` in the file):
@@ -244,7 +263,10 @@ if ( $_pbet_html_body === false || $_pbet_html_body === '' ) {
 // =========================================================================
 ```
 
-### A4. Verify the file has no PHP syntax errors
+### A3. Verify the file has no PHP syntax errors
+
+> **Note:** the Python script (A1) runs this automatically.  Only needed after a
+> manual edit (A2).
 
 ```bash
 php -l /var/www/html/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
@@ -254,7 +276,7 @@ Expected output: `No syntax errors detected in ...`
 
 If you see a parse error, restore the backup (`cp class-pdf.php.bak class-pdf.php`) and check that you pasted the block cleanly without leaving the original line in place.
 
-### A5. Test an export
+### A4. Test an export
 
 1. Log into Pressbooks and open any book.
 2. Go to **Export** and click **Export your book** with **Print PDF (Prince)** selected.
@@ -271,7 +293,7 @@ If you see a parse error, restore the backup (`cp class-pdf.php.bak class-pdf.ph
    **File → Properties → Description** — the book title should appear in the
    title bar (DisplayDocTitle fix).
 
-### A6. Enabling spoken alt text later
+### A5. Enabling spoken alt text later
 
 When Node.js and SRE are installed and verified, uncomment the one line in the
 block above:
@@ -288,7 +310,7 @@ Change it to:
 
 No other changes needed.
 
-### A7. Rolling back
+### A6. Rolling back
 
 To remove the hack entirely and restore original behaviour:
 
