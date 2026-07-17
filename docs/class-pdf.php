@@ -82,6 +82,7 @@ class Pdf extends Export {
 	 * @param array $args
 	 */
 	public function __construct( array $args ) {
+		error_log( '[pb-debug] Pdf::__construct() called — class=' . get_class( $this ) );
 
 		if ( ! defined( 'PB_PRINCE_COMMAND' ) ) {
 			define( 'PB_PRINCE_COMMAND', '/usr/bin/prince' );
@@ -97,7 +98,14 @@ class Pdf extends Export {
 		$md5 = $this->nonce( $timestamp );
 		$this->url = home_url() . "/format/xhtml?timestamp={$timestamp}&hashkey={$md5}";
 
+		error_log( '[pb-debug] Pdf::__construct() exportStylePath=' . var_export( $this->exportStylePath, true )
+			. ' exportScriptPath=' . var_export( $this->exportScriptPath, true )
+			. ' pdfProfile=' . var_export( $this->pdfProfile, true )
+			. ' pdfOutputIntent=' . var_export( $this->pdfOutputIntent, true )
+			. ' url=' . $this->url );
+
 		$this->themeOptionsOverrides();
+		error_log( '[pb-debug] Pdf::__construct() done' );
 	}
 
 	/**
@@ -107,6 +115,7 @@ class Pdf extends Export {
 	 * @param array $more_info (unused, overridden)
 	 */
 	public function logError( $message, array $more_info = [] ): void {
+		error_log( '[pb-debug] Pdf::logError() called — class=' . get_class( $this ) . ' message=' . $message );
 
 		$more_info['url'] = $this->url;
 
@@ -117,6 +126,7 @@ class Pdf extends Export {
 	 * @return string
 	 */
 	protected function generateFileName() {
+		error_log( '[pb-debug] Pdf::generateFileName() called — class=' . get_class( $this ) );
 		return $this->timestampedFileName( '.pdf' );
 	}
 
@@ -128,6 +138,7 @@ class Pdf extends Export {
 	 * @return bool
 	 */
 	protected function isPdf( $file ): bool {
+		error_log( '[pb-debug] Pdf::isPdf() called — class=' . get_class( $this ) . ' file=' . $file );
 
 		$mime = static::mimeType( $file );
 
@@ -138,14 +149,18 @@ class Pdf extends Export {
 	 * @return string
 	 */
 	protected function getPdfProfile(): string {
-		return defined( 'PB_PDF_PROFILE' ) ? PB_PDF_PROFILE : '';
+		$result = defined( 'PB_PDF_PROFILE' ) ? PB_PDF_PROFILE : '';
+		error_log( '[pb-debug] Pdf::getPdfProfile() called — class=' . get_class( $this ) . ' result=' . var_export( $result, true ) );
+		return $result;
 	}
 
 	/**
 	 * @return string
 	 */
 	protected function getPdfOutputIntent(): string {
-		return defined( 'PB_PDF_OUTPUT_INTENT' ) ? PB_PDF_OUTPUT_INTENT : '';
+		$result = defined( 'PB_PDF_OUTPUT_INTENT' ) ? PB_PDF_OUTPUT_INTENT : '';
+		error_log( '[pb-debug] Pdf::getPdfOutputIntent() called — class=' . get_class( $this ) . ' result=' . var_export( $result, true ) );
+		return $result;
 	}
 
 	/**
@@ -156,6 +171,7 @@ class Pdf extends Export {
 	 * @throws NotFoundExceptionInterface
 	 */
 	protected function kneadCss(): string {
+		error_log( '[pb-debug] Pdf::kneadCss() called — class=' . get_class( $this ) );
 
 		$styles = Container::get( 'Styles' );
 
@@ -187,6 +203,7 @@ class Pdf extends Export {
 	 * @throws NotFoundExceptionInterface
 	 */
 	protected function urlPath() {
+		error_log( '[pb-debug] Pdf::urlPath() called — class=' . get_class( $this ) );
 		$dir = str_replace( Container::get( 'Styles' )->getDir(), '', pathinfo( $this->exportStylePath, PATHINFO_DIRNAME ) );
 		$dir = ltrim( $dir, '/' );
 		$url_path = trailingslashit( get_stylesheet_directory_uri() ) . $dir;
@@ -197,6 +214,7 @@ class Pdf extends Export {
 	 * Override based on Theme Options
 	 */
 	protected function themeOptionsOverrides(): void {
+		error_log( '[pb-debug] Pdf::themeOptionsOverrides() called — class=' . get_class( $this ) );
 
 		// --------------------------------------------------------------------
 		// CSS
@@ -236,6 +254,7 @@ class Pdf extends Export {
 	 * @throws \Exception
 	 */
 	public function convert(): Generator {
+		error_log( '[pb-debug] Pdf::convert() called — class=' . get_class( $this ) );
 
 		if ( empty( $this->exportStylePath ) || ! is_file( $this->exportStylePath ) ) {
 			$this->logError( '$this->exportStylePath must be set before calling convert().' );
@@ -467,6 +486,7 @@ class Pdf extends Export {
 	}
 
 	public function validate(): Generator {
+		error_log( '[pb-debug] Pdf::validate() called — class=' . get_class( $this ) . ' outputPath=' . ( $this->outputPath ?? 'NOT SET' ) );
 		yield 90 => __( 'Validating PDF.', 'pressbooks' );
 		if ( ! $this->isPdf( $this->outputPath ) ) {
 			$this->logError( get_contents( $this->logfile ) );
