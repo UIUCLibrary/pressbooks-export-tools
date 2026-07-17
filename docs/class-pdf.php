@@ -271,6 +271,7 @@ class Pdf extends Export {
 		$prince->setHTML( true );
 		$prince->setCompress( true );
 		$prince->setHttpTimeout( defined( 'WP_TESTS_MULTISITE' ) ? 5 : 600 ); // 5 seconds for tests, 10 minutes for production
+		$prince->setInputType( 'xml' );
 		if ( defined( 'WP_ENV' ) && ( WP_ENV === 'development' ) ) {
 			$prince->setInsecure( true );
 		}
@@ -318,6 +319,20 @@ class Pdf extends Export {
 			$retval = $prince->convert_file_to_file( $this->url, $this->outputPath, $msg );
 
 		} else {
+			// ----- PHP transforms: entity fix + chapter IDs ------------------
+			// Fix bare & characters that would break XML parsing.
+			$_pbet_html_body = preg_replace( '/&(?![a-zA-Z]{2,6};|#\d{2,5};)/', '&amp;', $_pbet_html_body );
+			// Inject unique id="chapter-N" on every h1.chapter-title2 element.
+			$_pbet_ch_counter = 0;
+			$_pbet_html_body  = preg_replace_callback(
+				'/<h1\s+class="chapter-title2">/',
+				function ( $matches ) use ( &$_pbet_ch_counter ) {
+					$_pbet_ch_counter++;
+					return '<h1 class="chapter-title2" id="chapter-' . $_pbet_ch_counter . '">';
+				},
+				$_pbet_html_body
+			);
+
 			file_put_contents( $_pbet_src_html, $_pbet_html_body );
 			unset( $_pbet_html_body );
 
