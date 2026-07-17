@@ -10,17 +10,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "UIUCLibrary" }]
 dependencies = [
-  "click>=8.0,<9",
+  "click>=8.4,<9",
   "lxml>=6.1,<7",
 ]
 
 [project.optional-dependencies]
-math = ["latex2mathml>=3.81,<4"]
+math = ["latex2mathml>=3.0,<4"]
 pdf = ["pikepdf>=10,<11"]
 odt = ["pypandoc>=1.17,<2"]
 test = ["pytest>=9,<10", "pikepdf>=10,<11"]
 all = [
-  "latex2mathml>=3.81,<4",
+  "latex2mathml>=3.0,<4",
   "pikepdf>=10,<11",
   "pypandoc>=1.17,<2",
   "weasyprint>=69,<70",
