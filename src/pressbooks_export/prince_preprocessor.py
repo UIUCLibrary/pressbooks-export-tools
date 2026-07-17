@@ -70,7 +70,7 @@ class PrinceHtmlPreprocessor:
         document = html.fromstring(markup)
         self._fix_html_lang(document)
         self._add_math_roles(document)
-        return html.tostring(document, encoding="unicode", pretty_print=True)
+        return html.tostring(document, encoding="unicode", pretty_print=True, method="xml")
 
     def process_file(self, path: Path) -> str:
         """Read *path* and return the pre-processed HTML string."""

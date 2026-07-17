@@ -55,7 +55,7 @@ class HtmlProcessor:
         latex_images = find_latex_images(document)
         speeches = self._collect_speeches(latex_images) if self.spoken_alt_text else None
         replace_latex_images(document, latex_images, self.backend, speeches=speeches)
-        return html.tostring(document, encoding="unicode", pretty_print=True)
+        return html.tostring(document, encoding="unicode", pretty_print=True, method="xml")
 
     def process_file(self, path: Path) -> str:
         """Read *path* and return the processed HTML string."""

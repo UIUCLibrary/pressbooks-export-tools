@@ -25,7 +25,7 @@ def test_html_processor_replaces_pressbooks_math_images() -> None:
 
     processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
 
-    assert '<math><mtext>x+y</mtext></math>' in processed
+    assert '<math>' in processed and '<mtext>x+y</mtext>' in processed
     assert '<img class="latex"' not in processed
 
 
