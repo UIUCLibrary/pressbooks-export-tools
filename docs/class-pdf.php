@@ -14,6 +14,14 @@
  *      <wordpress-root>/wp-content/plugins/pressbooks/inc/modules/export/prince/class-pdf.php
  *    (Back up the original first.)
  * 3. Run `php -l class-pdf.php` to confirm no syntax errors.
+ * 4. IMPORTANT: clear PHP OPcache after deploying, otherwise the WP-Cron
+ *    background job will keep running the stale compiled bytecode.  The
+ *    symptom is [pb-debug] __construct() appearing in the log while
+ *    [pb-debug] convert() CALLED never appears — both run in different
+ *    PHP processes and OPcache can serve different versions to each.
+ *
+ *    Clear OPcache:  wp eval 'opcache_reset();'
+ *    Or restart:     sudo systemctl restart php8.3-fpm   (adjust version)
  *
  * To roll back, restore your backup or re-install the pressbooks plugin.
  *
@@ -248,15 +256,33 @@ class Pdf extends Export {
 	/**
 	 * For expensive functions we use a generator to allow the caller to yield control back to the event loop.
 	 *
+	 * Non-generator wrapper: the error_log here fires the instant convert() is
+	 * invoked (not deferred like generator-body code), so it appears in the log
+	 * even when OPcache serves a stale bytecode copy of this file to the
+	 * WP-Cron process.  If you see "convert() CALLED" but not "generator body
+	 * starting", OPcache is still serving the old class to the cron process —
+	 * run `wp eval 'opcache_reset();'` and retry.
+	 *
 	 * @return Generator
 	 * @throws ContainerExceptionInterface
 	 * @throws NotFoundExceptionInterface
 	 * @throws \Exception
 	 */
 	public function convert(): Generator {
-		error_log( '[pb-debug] Pdf::convert() called — class=' . get_class( $this ) );
+		error_log( '[pb-debug] Pdf::convert() CALLED — class=' . get_class( $this ) . ' (non-generator wrapper; fires immediately)' );
+		return $this->_convertGenerator();
+	}
+
+	/**
+	 * Actual generator body for convert().  Private; called only by convert().
+	 *
+	 * @return Generator
+	 */
+	private function _convertGenerator(): Generator {
+		error_log( '[pb-debug] Pdf::convert() generator body starting — class=' . get_class( $this ) );
 
 		if ( empty( $this->exportStylePath ) || ! is_file( $this->exportStylePath ) ) {
+			error_log( '[pb-debug] Pdf::convert() ERROR: exportStylePath not set or not a file — aborting.' );
 			$this->logError( '$this->exportStylePath must be set before calling convert().' );
 			yield 'error' => '$this->exportStylePath must be set before calling convert().';
 			return false;
@@ -290,7 +316,6 @@ class Pdf extends Export {
 		$prince->setHTML( true );
 		$prince->setCompress( true );
 		$prince->setHttpTimeout( defined( 'WP_TESTS_MULTISITE' ) ? 5 : 600 ); // 5 seconds for tests, 10 minutes for production
-		$prince->setInputType( 'xml' );
 		if ( defined( 'WP_ENV' ) && ( WP_ENV === 'development' ) ) {
 			$prince->setInsecure( true );
 		}
