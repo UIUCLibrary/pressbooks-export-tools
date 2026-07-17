@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "UIUCLibrary" }]
 dependencies = [
-  "click>=8.4,<9",
+  "click>=8.0,<9",
   "lxml>=6.1,<7",
 ]
 
