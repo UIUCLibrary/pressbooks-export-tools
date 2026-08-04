@@ -16,12 +16,12 @@ dependencies = [
 
 [project.optional-dependencies]
 math = ["latex2mathml>=3.0,<4"]
-pdf = ["pikepdf>=10,<11"]
+pdf = ["pikepdf>=9.11"]
 odt = ["pypandoc>=1.17,<2"]
-test = ["pytest>=9,<10", "pikepdf>=10,<11"]
+test = ["pytest>=9,<10", "pikepdf>=9.11"]
 all = [
   "latex2mathml>=3.0,<4",
-  "pikepdf>=10,<11",
+  "pikepdf>=9.11",
   "pypandoc>=1.17,<2",
   "weasyprint>=69,<70",
   "pytest>=9,<10",

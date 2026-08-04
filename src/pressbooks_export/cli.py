@@ -129,12 +129,29 @@ def main(
     default=None,
     help="Output path for the modified PDF (default: overwrite the input file in place).",
 )
-def postprocess_pdf(pdf_path: Path, output_path: Path | None) -> None:
+@click.option(
+    "--html",
+    "html_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help=(
+        "Path to the processed HTML file used to generate the PDF.  "
+        "When provided, MathML from each <math> element in the HTML is "
+        "attached as an Associated File on the corresponding Formula structure "
+        "element in the PDF, satisfying the PDF/UA-2 accessibility requirement "
+        "for embedded MathML."
+    ),
+)
+def postprocess_pdf(pdf_path: Path, output_path: Path | None, html_path: Path | None) -> None:
     """Apply PDF/UA-2 post-processing fixes to a Prince-generated PDF.
 
     Sets ViewerPreferences/DisplayDocTitle and injects a pdfuaid:part=2 XMP
     declaration — the two metadata fixes that Prince XML does not emit
     automatically.
+
+    When --html is supplied, also attaches MathML Associated Files to each
+    Formula structure element in the PDF so that screen readers and other
+    assistive tools can access the original MathML source.
 
     Requires pikepdf: pip install 'pressbooks-export-tools[pdf]'
     """
@@ -148,6 +165,20 @@ def postprocess_pdf(pdf_path: Path, output_path: Path | None) -> None:
 
     postprocess_for_pdfua2(pdf_path, output_path)
     target = output_path if output_path is not None else pdf_path
+
+    if html_path is not None:
+        processed_html = html_path.read_text(encoding="utf-8")
+        mathml_strings = extract_mathml_from_html(processed_html)
+        if mathml_strings:
+            updated = inject_mathml_into_pdf(target, mathml_strings)
+            if updated:
+                click.echo(
+                    f"Injected MathML into {updated} Formula element(s) in PDF.",
+                    err=True,
+                )
+        else:
+            click.echo("No <math> elements found in the supplied HTML.", err=True)
+
     click.echo(f"PDF/UA-2 post-processing complete: {target}")
 
 
