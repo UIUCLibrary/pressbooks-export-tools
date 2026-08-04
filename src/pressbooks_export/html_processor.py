@@ -51,7 +51,11 @@ class HtmlProcessor:
 
     def process_html(self, markup: str) -> str:
         """Return *markup* with math images replaced and optional spoken alt text."""
-        document = html.fromstring(markup)
+        # lxml rejects a unicode string that contains an XML encoding declaration
+        # (e.g. <?xml version="1.0" encoding="UTF-8"?>) — pass bytes instead so
+        # it can handle the declaration itself.
+        markup_bytes = markup.encode("utf-8")
+        document = html.fromstring(markup_bytes)
         latex_images = find_latex_images(document)
         speeches = self._collect_speeches(latex_images) if self.spoken_alt_text else None
         replace_latex_images(document, latex_images, self.backend, speeches=speeches)

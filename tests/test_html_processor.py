@@ -88,3 +88,25 @@ def test_spoken_alt_text_off_by_default() -> None:
     # no spoken: prefix appears.
     assert "spoken:" not in processed
 
+
+def test_process_html_with_xml_encoding_declaration() -> None:
+    """process_html must not raise when markup contains an XML encoding declaration.
+
+    Pressbooks XHTML exports begin with ``<?xml version="1.0" encoding="UTF-8"?>``.
+    lxml rejects such a declaration when the input is a Python *str*; the fix is to
+    encode to bytes before parsing.
+    """
+    markup = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<!DOCTYPE html>'
+        '<html><body>'
+        '<p><img class="latex" alt="x+y" /></p>'
+        '</body></html>'
+    )
+
+    # Must not raise ValueError
+    processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
+
+    assert '<math>' in processed
+    assert '<img class="latex"' not in processed
+
