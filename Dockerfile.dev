@@ -1,0 +1,60 @@
+# Dockerfile.dev
+# Pre-built development image for Copilot agent sessions.
+# Bakes in Python 3.11, Node 20, Pandoc, and TeX Live (scheme-small)
+# so the copilot-setup-steps job starts in ~30s instead of 5-10 minutes.
+#
+# To rebuild and push:
+#   Go to Actions → "Build and push dev image" → Run workflow
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── System packages ──────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    ca-certificates \
+    gnupg \
+    pandoc \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python/python3
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+ && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# ── Node.js 20 ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+# ── TeX Live (scheme-small + PDF/UA-2 math packages) ──────────────────────────
+# Install to a version-agnostic path so PATH stays stable across TL releases.
+RUN mkdir -p /usr/local/texlive
+
+RUN cd /tmp \
+ && curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz \
+    | tar -xz \
+ && cd install-tl-* \
+ && cat > /tmp/texlive.profile <<'EOF2'
+selected_scheme scheme-small
+TEXDIR /usr/local/texlive/latest
+TEXMFLOCAL /usr/local/texlive/texmf-local
+TEXMFSYSCONFIG /usr/local/texlive/latest/texmf-config
+TEXMFSYSVAR /usr/local/texlive/latest/texmf-var
+TEXMFHOME ~/texmf
+option_doc 0
+option_src 0
+EOF2
+ && TEXLIVE_INSTALL_NO_CONTEXT_CACHE=1 \
+    ./install-tl --profile=/tmp/texlive.profile \
+ && /usr/local/texlive/latest/bin/x86_64-linux/tlmgr install \
+    luamml tagpdf latex-bin-dev unicode-math \
+ && rm -rf /tmp/install-tl-* /tmp/texlive.profile
+
+# Persist TeX Live on PATH for all subsequent layers and runtime
+ENV PATH="/usr/local/texlive/latest/bin/x86_64-linux:${PATH}"

@@ -2,6 +2,13 @@ name: "Copilot Setup Steps"
 
 # Run automatically when this file changes (validates the setup works),
 # and allow manual triggering from the Actions tab.
+#
+# The job runs inside a pre-built dev image (ghcr.io/uiuclibrary/pressbooks-export-tools-dev)
+# that has Python 3.11, Node 20, Pandoc, and TeX Live pre-installed.
+# This reduces setup time from ~10 minutes to ~30 seconds.
+#
+# To rebuild the image (e.g. after adding new system deps to Dockerfile.dev):
+#   Actions → "Build and push dev image" → Run workflow
 on:
   workflow_dispatch:
   push:
@@ -15,94 +22,33 @@ jobs:
   # The job MUST be called `copilot-setup-steps` to be picked up by Copilot.
   copilot-setup-steps:
     runs-on: ubuntu-latest
-    timeout-minutes: 59
+    timeout-minutes: 10
+
+    container:
+      image: ghcr.io/uiuclibrary/pressbooks-export-tools-dev:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     permissions:
       contents: read
+      packages: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Python ──────────────────────────────────────────────────────────────
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
+      # ── Python dependencies ──────────────────────────────────────────────────
+      # Python 3.11 is pre-installed in the image; just install project deps.
       - name: Install Python dependencies
         run: pip install -e ".[test,math,pdf]"
 
-      # ── Node.js / MathJax ───────────────────────────────────────────────────
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
+      # ── Node.js dependencies ─────────────────────────────────────────────────
+      # Node 20 is pre-installed in the image; just install project deps.
       - name: Install MathJax Node dependencies
         run: npm install --prefix src/pressbooks_export/math/backends/node
 
-      # ── Pandoc ──────────────────────────────────────────────────────────────
-      - name: Install Pandoc
-        run: sudo apt-get install -y pandoc
-
-      # ── TeX Live 2025+ ──────────────────────────────────────────────────────
-      # Install a minimal TeX Live (scheme-small) with the packages needed for
-      # PDF/UA-2 math tagging: luamml, tagpdf, and latex-bin-dev (lualatex-dev).
-      #
-      # Cache key includes a version token (bump `v2`, `v3`, … to force a fresh
-      # install when you need to pick up TeX Live package updates).
-      - name: Cache TeX Live
-        id: cache-texlive
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/texlive
-          key: texlive-${{ runner.os }}-v1
-
-      - name: Install TeX Live (cache miss)
-        if: steps.cache-texlive.outputs.cache-hit != 'true'
-        run: |
-          sudo mkdir -p /usr/local/texlive
-          sudo chown "$USER" /usr/local/texlive
-
-          cd /tmp
-          # Download the installer.  mirror.ctan.org redirects to a nearby
-          # mirror; GitHub Actions runners have unrestricted internet access so
-          # the redirect is followed transparently.
-          curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz \
-            | tar -xz
-          cd install-tl-*
-
-          # Minimal profile: scheme-small gives us lualatex, amsmath, etc.
-          # Install to a version-agnostic path so the cache key stays stable.
-          cat > texlive.profile <<'EOF'
-          selected_scheme scheme-small
-          TEXDIR /usr/local/texlive/latest
-          TEXMFLOCAL /usr/local/texlive/texmf-local
-          TEXMFSYSCONFIG /usr/local/texlive/latest/texmf-config
-          TEXMFSYSVAR /usr/local/texlive/latest/texmf-var
-          TEXMFHOME ~/texmf
-          option_doc 0
-          option_src 0
-          EOF
-
-          # Run the installer non-interactively (~5-10 minutes for scheme-small)
-          TEXLIVE_INSTALL_NO_CONTEXT_CACHE=1 \
-            ./install-tl --profile=texlive.profile
-
-          # Persist PATH for subsequent steps in this job
-          echo "/usr/local/texlive/latest/bin/x86_64-linux" >> "$GITHUB_PATH"
-
-          # Install the packages required for PDF/UA-2 math tagging
-          /usr/local/texlive/latest/bin/x86_64-linux/tlmgr install \
-            luamml tagpdf latex-bin-dev unicode-math
-
-      - name: Add TeX Live to PATH (cache hit)
-        if: steps.cache-texlive.outputs.cache-hit == 'true'
-        run: echo "/usr/local/texlive/latest/bin/x86_64-linux" >> "$GITHUB_PATH"
-
-      # ── Verify ──────────────────────────────────────────────────────────────
+      # ── Verify ───────────────────────────────────────────────────────────────
       - name: Verify tool versions
         run: |
           echo "=== Python ==="
