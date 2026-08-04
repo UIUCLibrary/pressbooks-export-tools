@@ -10,7 +10,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── System packages ──────────────────────────────────────────────────────────
+# ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
@@ -32,24 +32,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
-# ── TeX Live (scheme-small + PDF/UA-2 math packages) ──────────────────────────
+# ── TeX Live (scheme-small + PDF/UA-2 math packages) ─────────────────────────
 # Install to a version-agnostic path so PATH stays stable across TL releases.
-RUN mkdir -p /usr/local/texlive
-
-RUN cd /tmp \
+# Note: heredocs inside RUN are not used here because Docker splits the build
+# context at EOF markers; the profile is written with printf instead.
+RUN mkdir -p /usr/local/texlive \
+ && cd /tmp \
  && curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz \
     | tar -xz \
  && cd install-tl-* \
- && cat > /tmp/texlive.profile <<'EOF2'
-selected_scheme scheme-small
-TEXDIR /usr/local/texlive/latest
-TEXMFLOCAL /usr/local/texlive/texmf-local
-TEXMFSYSCONFIG /usr/local/texlive/latest/texmf-config
-TEXMFSYSVAR /usr/local/texlive/latest/texmf-var
-TEXMFHOME ~/texmf
-option_doc 0
-option_src 0
-EOF2
+ && printf '%s\n' \
+      'selected_scheme scheme-small' \
+      'TEXDIR /usr/local/texlive/latest' \
+      'TEXMFLOCAL /usr/local/texlive/texmf-local' \
+      'TEXMFSYSCONFIG /usr/local/texlive/latest/texmf-config' \
+      'TEXMFSYSVAR /usr/local/texlive/latest/texmf-var' \
+      'TEXMFHOME ~/texmf' \
+      'option_doc 0' \
+      'option_src 0' \
+      > /tmp/texlive.profile \
  && TEXLIVE_INSTALL_NO_CONTEXT_CACHE=1 \
     ./install-tl --profile=/tmp/texlive.profile \
  && /usr/local/texlive/latest/bin/x86_64-linux/tlmgr install \
