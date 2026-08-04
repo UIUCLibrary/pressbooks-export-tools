@@ -37,6 +37,9 @@ def replace_latex_images(
         description is set as the ``aria-label`` attribute on the generated
         ``<math>`` element, giving assistive technology a human-readable
         fallback without requiring it to navigate the full MathML tree.
+        The MathML ``alttext`` attribute is always set to the original LaTeX
+        source regardless of whether spoken descriptions are provided, so that
+        Prince XML can populate the Formula structure element's Alt entry.
     """
     if not math_images:
         return
@@ -81,6 +84,12 @@ def _apply_replacement(
     replacement = html.fragment_fromstring(mathml, create_parent=False)
     if math_image.display:
         replacement.set("display", "block")
+    # Always set the MathML alttext attribute to the original LaTeX source.
+    # Prince XML reads this to populate the Formula structure element's Alt
+    # entry, which is required to avoid "Formula structure element is missing
+    # alternative text" accessibility errors.
+    if math_image.latex and not replacement.get("alttext"):
+        replacement.set("alttext", math_image.latex)
     if speeches and index < len(speeches) and speeches[index]:
         replacement.set("aria-label", speeches[index])
     parent = math_image.element.getparent()

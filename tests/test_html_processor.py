@@ -25,7 +25,7 @@ def test_html_processor_replaces_pressbooks_math_images() -> None:
 
     processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
 
-    assert '<math>' in processed and '<mtext>x+y</mtext>' in processed
+    assert '<math' in processed and '<mtext>x+y</mtext>' in processed
     assert '<img class="latex"' not in processed
 
 
@@ -89,6 +89,49 @@ def test_spoken_alt_text_off_by_default() -> None:
     assert "spoken:" not in processed
 
 
+def test_alttext_always_set_without_spoken_alt() -> None:
+    """alttext is set to the original LaTeX even without --spoken-alt-text.
+
+    Prince XML reads alttext to populate the Formula structure element's Alt
+    entry.  Without it Prince emits "Formula structure element is missing
+    alternative text" errors.
+    """
+    markup = '<html><body><p><img class="latex" alt="x+y" /></p></body></html>'
+
+    processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
+
+    assert 'alttext="x+y"' in processed
+
+
+def test_alttext_set_with_spoken_alt() -> None:
+    """alttext (LaTeX) and aria-label (spoken) are both set when spoken alt text is on."""
+    markup = '<html><body><p><img class="latex" alt="x+y" /></p></body></html>'
+
+    processed = HtmlProcessor(
+        backend=StubBackend(),
+        spoken_alt_text=True,
+        sre_backend=StubSreBackend(),
+    ).process_html(markup)
+
+    assert 'alttext="x+y"' in processed
+    assert 'aria-label="spoken: x+y"' in processed
+
+
+def test_alttext_not_overwritten_if_already_present() -> None:
+    """If the backend already emits alttext, we do not overwrite it."""
+
+    class AltTextBackend(MathBackend):
+        def convert(self, latex: str, *, display: bool = False) -> str:
+            return f'<math alttext="custom"><mtext>{latex}</mtext></math>'
+
+    markup = '<html><body><p><img class="latex" alt="x+y" /></p></body></html>'
+
+    processed = HtmlProcessor(backend=AltTextBackend()).process_html(markup)
+
+    assert 'alttext="custom"' in processed
+    assert 'alttext="x+y"' not in processed
+
+
 def test_process_html_with_xml_encoding_declaration() -> None:
     """process_html must not raise when markup contains an XML encoding declaration.
 
@@ -107,6 +150,6 @@ def test_process_html_with_xml_encoding_declaration() -> None:
     # Must not raise ValueError
     processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
 
-    assert '<math>' in processed
+    assert '<math' in processed
     assert '<img class="latex"' not in processed
 

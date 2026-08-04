@@ -35,10 +35,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pikepdf as _pikepdf
+import pikepdf
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +65,7 @@ _PDFUA2_XMP_PACKET = """\
 <?xpacket end='w'?>"""
 
 
-def fix_display_doc_title(pdf: "_pikepdf.Pdf") -> None:
+def fix_display_doc_title(pdf: "pikepdf.Pdf") -> None:
     """Set ``ViewerPreferences/DisplayDocTitle = true`` in *pdf* (in-place).
 
     PDF/UA-2 (ISO 14289-2 §7.1) requires that the document title is displayed
@@ -79,15 +77,13 @@ def fix_display_doc_title(pdf: "_pikepdf.Pdf") -> None:
     pdf:
         An open :class:`pikepdf.Pdf` instance (mutated in-place).
     """
-    import pikepdf
-
     if "/ViewerPreferences" not in pdf.Root:
         pdf.Root["/ViewerPreferences"] = pikepdf.Dictionary()
     pdf.Root["/ViewerPreferences"]["/DisplayDocTitle"] = True
     logger.debug("Set ViewerPreferences/DisplayDocTitle = true")
 
 
-def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
+def inject_pdfua2_xmp(pdf: "pikepdf.Pdf") -> None:
     """Inject or merge a ``pdfuaid:part = 2`` declaration into *pdf*'s XMP stream.
 
     If the PDF already contains an ``/Metadata`` stream the new RDF block is
@@ -100,7 +96,6 @@ def inject_pdfua2_xmp(pdf: "_pikepdf.Pdf") -> None:
     pdf:
         An open :class:`pikepdf.Pdf` instance (mutated in-place).
     """
-    import pikepdf
     from lxml import etree
 
     _PDFUAID_NS = "http://www.aiim.org/pdfua/ns/id/"
@@ -191,8 +186,6 @@ def postprocess_for_pdfua2(
         Where to write the modified PDF.  Defaults to overwriting *pdf_path*
         in place.
     """
-    import pikepdf
-
     if output_path is None:
         output_path = pdf_path
 
