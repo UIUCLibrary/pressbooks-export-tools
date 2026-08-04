@@ -7,7 +7,7 @@ name = "pressbooks-export-tools"
 version = "0.1.0"
 description = "Scaffold for Pressbooks HTML to accessible PDF/ODT export tooling"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 authors = [{ name = "UIUCLibrary" }]
 dependencies = [
   "click>=8.4,<9",

@@ -36,15 +36,41 @@ Validation targets:
 
 See `spike/README.md` for the spike checklist and usage notes.
 
-## Quick start
+## Installation
+
+### Development (editable) install
+
+Create a virtual environment and install the package in editable mode:
 
 ```bash
-python -m pip install -e ".[test]"
+python3 -m venv /path/to/venv
+/path/to/venv/bin/pip install -e ".[test]"
+```
+
+Replace `/path/to/venv` with a directory you have write access to (e.g. `~/.venv/pb-tools` or `/opt/pb-venv`).
+
+> **Note:** If you previously ran the install as a different user (e.g. with `sudo`), you may see a
+> `Cannot update time stamp of directory 'src/pressbooks_export_tools.egg-info'` error.
+> Delete that directory and retry:
+> ```bash
+> sudo rm -rf src/pressbooks_export_tools.egg-info
+> /path/to/venv/bin/pip install -e ".[test]"
+> ```
+
+### Install from GitHub
+
+```bash
+/path/to/venv/bin/pip install "git+https://github.com/UIUCLibrary/pressbooks-export-tools.git"
+```
+
+### Quick start
+
+```bash
 pytest
 pb-export --help
 ```
 
-Optional extras:
+### Optional extras
 
 - `.[math]` for the Python LaTeX fallback backend
 - `.[pdf]` for WeasyPrint support
