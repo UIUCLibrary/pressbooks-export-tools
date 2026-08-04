@@ -76,3 +76,30 @@ pb-export --help
 - `.[pdf]` for WeasyPrint support
 - `.[odt]` for Pandoc wrapper support
 - `.[all]` for the full Python dependency set
+
+## Local debugging
+
+`scripts/debug_local.sh` reproduces the exact command the WordPress plugin runs
+(Step 2: `pb-export --format html --prince-preprocess`) so you can catch and fix
+Python errors locally before deploying.
+
+**Step 1 — get a real export HTML from the server:**
+
+```bash
+scp user@server:/var/www/html/wp-content/pb-export-debug/dirty.html \
+    example_documents/dirty.html
+```
+
+(`dirty.html` is gitignored so large real exports are not committed accidentally.)
+
+**Step 2 — run the debug script:**
+
+```bash
+./scripts/debug_local.sh
+# or point at a specific file:
+./scripts/debug_local.sh /path/to/dirty.html /tmp/clean.html
+```
+
+The script prints the full Python traceback on failure (no truncation), so errors
+can be reproduced and fixed without needing access to the server.  Commit the fix,
+`git pull` on the server, and repeat until the script exits 0.

@@ -9,3 +9,4 @@ spike/reference/*.pdf
 spike/reference/*.aux
 spike/reference/*.log
 *.log
+example_documents/dirty.html
