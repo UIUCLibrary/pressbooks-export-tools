@@ -1,0 +1,42 @@
+name: Build and push dev image
+
+# Rebuild the Copilot agent dev image whenever Dockerfile.dev changes on main,
+# or trigger manually from the Actions tab.
+#
+# After merging changes that add new tools/deps to Dockerfile.dev, run this
+# workflow once to publish the updated image to GHCR. The copilot-setup-steps
+# job will pick it up automatically on the next agent session.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile.dev
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.dev
+          push: true
+          tags: ghcr.io/uiuclibrary/pressbooks-export-tools-dev:latest
