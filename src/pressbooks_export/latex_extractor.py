@@ -23,7 +23,7 @@ from .math.detector import _is_display
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
+@dataclass
 class LatexEntry:
     latex: str
     display: bool

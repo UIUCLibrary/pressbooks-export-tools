@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from lxml import html
 
 
-@dataclass(slots=True)
+@dataclass
 class LatexImage:
     element: html.HtmlElement
     latex: str
