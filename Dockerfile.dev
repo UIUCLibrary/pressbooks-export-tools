@@ -1,6 +1,6 @@
 # Dockerfile.dev
 # Pre-built development image for Copilot agent sessions.
-# Bakes in Python 3.11, Node 20, Pandoc, and TeX Live (scheme-small)
+# Bakes in Python 3, Node 20, Pandoc, and TeX Live (scheme-small)
 # so the copilot-setup-steps job starts in ~30s instead of 5-10 minutes.
 #
 # To rebuild and push:
@@ -11,21 +11,24 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ── System packages ───────────────────────────────────────────────────────────
+# Ubuntu 24.04 ships Python 3.12 natively; no PPA needed.
+# python3-pip is installed via pip bootstrap to avoid the apt version being
+# externally-managed-environment restricted.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     ca-certificates \
     gnupg \
     pandoc \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3-pip \
+    python3 \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Make python3.11 the default python/python3
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
- && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+# Install pip via the official bootstrap script (avoids apt's managed-env restrictions)
+RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3
+
+# Ensure `python` resolves to python3
+RUN ln -sf /usr/bin/python3 /usr/local/bin/python
 
 # ── Node.js 20 ────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -34,8 +37,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # ── TeX Live (scheme-small + PDF/UA-2 math packages) ─────────────────────────
 # Install to a version-agnostic path so PATH stays stable across TL releases.
-# Note: heredocs inside RUN are not used here because Docker splits the build
-# context at EOF markers; the profile is written with printf instead.
+# printf is used instead of a heredoc to avoid Dockerfile parse errors.
 RUN mkdir -p /usr/local/texlive \
  && cd /tmp \
  && curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz \
