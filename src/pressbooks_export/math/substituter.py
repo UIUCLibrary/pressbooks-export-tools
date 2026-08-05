@@ -84,14 +84,26 @@ def _apply_replacement(
     replacement = html.fragment_fromstring(mathml, create_parent=False)
     if math_image.display:
         replacement.set("display", "block")
-    # Always set the MathML alttext attribute to the original LaTeX source.
-    # Prince XML reads this to populate the Formula structure element's Alt
-    # entry, which is required to avoid "Formula structure element is missing
-    # alternative text" accessibility errors.
-    if math_image.latex and not replacement.get("alttext"):
-        replacement.set("alttext", math_image.latex)
-    if speeches and index < len(speeches) and speeches[index]:
-        replacement.set("aria-label", speeches[index])
+    # Prince XML reads the MathML ``alttext`` attribute to populate the
+    # Formula structure element's Alt entry in the PDF.  When a spoken
+    # description is available, use it as ``alttext`` so Acrobat and screen
+    # readers see the plain-English text rather than raw LaTeX.  The original
+    # LaTeX is preserved in ``data-latex`` for downstream use (e.g. MathML
+    # re-conversion or debugging).  When no spoken description is available,
+    # fall back to the LaTeX source so Prince still has an Alt value.
+    spoken = speeches[index] if (speeches and index < len(speeches)) else ""
+    if not replacement.get("alttext"):
+        if spoken:
+            replacement.set("alttext", spoken)
+        elif math_image.latex:
+            replacement.set("alttext", math_image.latex)
+    # Always preserve the original LaTeX in data-latex when spoken alt text is
+    # active so downstream consumers can still access the source expression,
+    # even when the backend already emitted its own alttext value.
+    if spoken and math_image.latex and not replacement.get("data-latex"):
+        replacement.set("data-latex", math_image.latex)
+    if spoken:
+        replacement.set("aria-label", spoken)
     parent = math_image.element.getparent()
     if parent is None:
         return

@@ -104,7 +104,13 @@ def test_alttext_always_set_without_spoken_alt() -> None:
 
 
 def test_alttext_set_with_spoken_alt() -> None:
-    """alttext (LaTeX) and aria-label (spoken) are both set when spoken alt text is on."""
+    """When spoken alt text is on, alttext gets the spoken description (for Prince).
+
+    Prince XML reads alttext to populate the Formula structure element's Alt
+    entry.  With --spoken-alt-text, the spoken description should appear there
+    so screen readers see plain English instead of raw LaTeX.  The original
+    LaTeX is preserved in data-latex.
+    """
     markup = '<html><body><p><img class="latex" alt="x+y" /></p></body></html>'
 
     processed = HtmlProcessor(
@@ -113,7 +119,8 @@ def test_alttext_set_with_spoken_alt() -> None:
         sre_backend=StubSreBackend(),
     ).process_html(markup)
 
-    assert 'alttext="x+y"' in processed
+    assert 'alttext="spoken: x+y"' in processed
+    assert 'data-latex="x+y"' in processed
     assert 'aria-label="spoken: x+y"' in processed
 
 
@@ -130,6 +137,34 @@ def test_alttext_not_overwritten_if_already_present() -> None:
 
     assert 'alttext="custom"' in processed
     assert 'alttext="x+y"' not in processed
+
+
+def test_data_latex_set_even_when_backend_emits_alttext() -> None:
+    """data-latex is set when spoken alt text is on, even if the backend emits alttext.
+
+    Downstream consumers (e.g. MathML re-conversion) rely on data-latex to
+    find the original LaTeX.  It must be set regardless of whether the backend
+    already populated alttext with its own value.
+    """
+
+    class AltTextBackend(MathBackend):
+        def convert(self, latex: str, *, display: bool = False) -> str:
+            return f'<math alttext="custom"><mtext>{latex}</mtext></math>'
+
+    markup = '<html><body><p><img class="latex" alt="x+y" /></p></body></html>'
+
+    processed = HtmlProcessor(
+        backend=AltTextBackend(),
+        spoken_alt_text=True,
+        sre_backend=StubSreBackend(),
+    ).process_html(markup)
+
+    # Backend's alttext should be preserved (not overwritten by spoken text).
+    assert 'alttext="custom"' in processed
+    # Original LaTeX must be available in data-latex.
+    assert 'data-latex="x+y"' in processed
+    # Spoken text goes to aria-label.
+    assert 'aria-label="spoken: x+y"' in processed
 
 
 def test_process_html_with_xml_encoding_declaration() -> None:
