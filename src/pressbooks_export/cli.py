@@ -8,6 +8,8 @@ from .converters.odt import PandocOdtConverter
 from .converters.pdf import PandocLuaLatexPdfConverter, check_pdf_math_dependencies
 from .converters.pdf_mathml_postprocessor import (
     extract_mathml_from_html,
+    extract_mathml_from_latex_images,
+    inject_mathml_into_figures,
     inject_mathml_into_pdf,
 )
 from .html_processor import HtmlProcessor
@@ -54,6 +56,20 @@ from .prince_preprocessor import PrinceHtmlPreprocessor
         "Requires Node.js with the node/ dependencies installed."
     ),
 )
+@click.option(
+    "--image-only",
+    is_flag=True,
+    default=False,
+    help=(
+        "Keep Pressbooks math images (``<img class='latex'>``) intact in the "
+        "output HTML instead of converting them to ``<math>`` MathML elements.  "
+        "Visual rendering remains pixel-perfect (Prince lays out the original "
+        "images).  When combined with --prince-preprocess and --spoken-alt-text, "
+        "the alt text on each image is still replaced with a spoken description.  "
+        "Use pb-postprocess-pdf --html to attach MathML as Associated Files on "
+        "the resulting Figure structure elements after Prince runs."
+    ),
+)
 def main(
     input_path: Path,
     output_format: str,
@@ -61,6 +77,7 @@ def main(
     math_backend: str,
     prince_preprocess: bool,
     spoken_alt_text: bool,
+    image_only: bool,
 ) -> None:
     """Process a Pressbooks HTML export into HTML, PDF, or ODT."""
     sre_backend: SreNodeBackend | None = None
@@ -76,17 +93,27 @@ def main(
                 "npm install --prefix src/pressbooks_export/math/backends/node"
             ) from exc
 
-    processor = HtmlProcessor(
-        backend=MathJaxNodeBackend() if math_backend == "mathjax" else Latex2MathMLBackend(),
-        spoken_alt_text=spoken_alt_text,
-        sre_backend=sre_backend,
-    )
-    processed_html = processor.process_file(input_path)
+    if image_only:
+        # Gentle pipeline: keep math images intact for visual fidelity.
+        # Only run the Prince preprocessor (adds role="math", lang fix, spoken alt).
+        processed_html = input_path.read_text(encoding="utf-8")
+        if prince_preprocess:
+            processed_html = PrinceHtmlPreprocessor(
+                sre_backend=sre_backend if spoken_alt_text else None,
+            ).process_html(processed_html)
+    else:
+        # Full MathML-substitution pipeline: convert images → <math> elements.
+        processor = HtmlProcessor(
+            backend=MathJaxNodeBackend() if math_backend == "mathjax" else Latex2MathMLBackend(),
+            spoken_alt_text=spoken_alt_text,
+            sre_backend=sre_backend,
+        )
+        processed_html = processor.process_file(input_path)
 
-    if prince_preprocess:
-        processed_html = PrinceHtmlPreprocessor(
-            sre_backend=sre_backend if spoken_alt_text else None,
-        ).process_html(processed_html)
+        if prince_preprocess:
+            processed_html = PrinceHtmlPreprocessor(
+                sre_backend=sre_backend if spoken_alt_text else None,
+            ).process_html(processed_html)
 
     if output_format == "html":
         output_path.write_text(processed_html, encoding="utf-8")
@@ -136,10 +163,13 @@ def main(
     default=None,
     help=(
         "Path to the processed HTML file used to generate the PDF.  "
-        "When provided, MathML from each <math> element in the HTML is "
-        "attached as an Associated File on the corresponding Formula structure "
-        "element in the PDF, satisfying the PDF/UA-2 accessibility requirement "
-        "for embedded MathML."
+        "When the HTML contains ``<math>`` elements (MathML-substitution "
+        "pipeline), MathML is attached as Associated Files on Formula "
+        "structure elements.  When it contains ``<img class='latex'>`` "
+        "images (gentle / image-only pipeline), MathML is generated from "
+        "the LaTeX in each image's alt/data-latex attribute and attached "
+        "to the Figure structure elements that Prince creates for those "
+        "images."
     ),
 )
 def postprocess_pdf(pdf_path: Path, output_path: Path | None, html_path: Path | None) -> None:
@@ -149,9 +179,16 @@ def postprocess_pdf(pdf_path: Path, output_path: Path | None, html_path: Path | 
     declaration — the two metadata fixes that Prince XML does not emit
     automatically.
 
-    When --html is supplied, also attaches MathML Associated Files to each
-    Formula structure element in the PDF so that screen readers and other
-    assistive tools can access the original MathML source.
+    When --html is supplied, also attaches MathML Associated Files to the
+    math structure elements in the PDF.  The pipeline is detected
+    automatically from the HTML content:
+
+    \b
+    * MathML-substitution pipeline (HTML has <math> elements) → MathML is
+      attached to Formula structure elements.
+    * Gentle / image-only pipeline (HTML has <img class="latex"> images) →
+      MathML is generated from the LaTeX source and attached to Figure
+      structure elements (because Prince tags images as Figure, not Formula).
 
     Requires pikepdf: pip install 'pressbooks-export-tools[pdf]'
     """
@@ -168,8 +205,11 @@ def postprocess_pdf(pdf_path: Path, output_path: Path | None, html_path: Path | 
 
     if html_path is not None:
         processed_html = html_path.read_text(encoding="utf-8")
+
+        # Detect pipeline from HTML content.
         mathml_strings = extract_mathml_from_html(processed_html)
         if mathml_strings:
+            # MathML-substitution pipeline: attach to Formula elements.
             updated = inject_mathml_into_pdf(target, mathml_strings)
             if updated:
                 click.echo(
@@ -177,7 +217,20 @@ def postprocess_pdf(pdf_path: Path, output_path: Path | None, html_path: Path | 
                     err=True,
                 )
         else:
-            click.echo("No <math> elements found in the supplied HTML.", err=True)
+            # Gentle pipeline: generate MathML from latex images → Figure elements.
+            image_mathml = extract_mathml_from_latex_images(processed_html)
+            if image_mathml:
+                updated = inject_mathml_into_figures(target, image_mathml)
+                if updated:
+                    click.echo(
+                        f"Injected MathML into {updated} Figure element(s) in PDF.",
+                        err=True,
+                    )
+            else:
+                click.echo(
+                    "No <math> elements or <img class='latex'> images found in the supplied HTML.",
+                    err=True,
+                )
 
     click.echo(f"PDF/UA-2 post-processing complete: {target}")
 

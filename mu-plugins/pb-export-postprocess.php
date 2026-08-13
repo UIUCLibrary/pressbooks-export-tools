@@ -49,8 +49,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 const PB_EXPORT_TOOLS_OPTION      = 'pb_export_tools_enabled';
 const PB_EXPORT_TOOLS_SPOKEN_ALT  = 'pb_export_tools_spoken_alt_text';
+const PB_EXPORT_TOOLS_IMAGE_ONLY  = 'pb_export_tools_image_only';
 const PB_EXPORT_TOOLS_BIN         = 'pb_export_tools_bin_path';
 const PB_EXPORT_TOOLS_POSTBIN     = 'pb_export_tools_postprocess_bin_path';
+
+// ---------------------------------------------------------------------------
+// Module-level state: processed HTML path shared between the preprocess
+// filter and the postprocess action within the same request.
+// ---------------------------------------------------------------------------
+
+/** @var string|null Absolute path of the processed HTML written by pb-export. */
+$_pb_export_tools_processed_html_path = null;
 
 // ---------------------------------------------------------------------------
 // Admin settings
@@ -88,6 +97,15 @@ function pb_export_tools_register_settings(): void {
 	register_setting(
 		'pb_export_tools',
 		PB_EXPORT_TOOLS_SPOKEN_ALT,
+		[
+			'type'              => 'boolean',
+			'default'           => false,
+			'sanitize_callback' => 'rest_sanitize_boolean',
+		]
+	);
+	register_setting(
+		'pb_export_tools',
+		PB_EXPORT_TOOLS_IMAGE_ONLY,
 		[
 			'type'              => 'boolean',
 			'default'           => false,
@@ -195,6 +213,22 @@ function pb_export_tools_settings_page(): void {
 				</tr>
 				<tr>
 					<th scope="row">
+						<?php esc_html_e( 'Gentle pipeline (image-only)', 'pb-export-tools' ); ?>
+					</th>
+					<td>
+						<label>
+							<input
+								type="checkbox"
+								name="<?php echo esc_attr( PB_EXPORT_TOOLS_IMAGE_ONLY ); ?>"
+								value="1"
+								<?php checked( (bool) get_option( PB_EXPORT_TOOLS_IMAGE_ONLY, false ) ); ?>
+							/>
+							<?php esc_html_e( 'Keep Pressbooks math images intact (do not convert to MathML). Visual rendering stays pixel-perfect. MathML is generated separately and attached as Associated Files on Figure structure elements during PDF post-processing.', 'pb-export-tools' ); ?>
+						</label>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
 						<label for="<?php echo esc_attr( PB_EXPORT_TOOLS_BIN ); ?>">
 							<?php esc_html_e( 'pb-export path', 'pb-export-tools' ); ?>
 						</label>
@@ -253,6 +287,8 @@ function pb_export_tools_settings_page(): void {
 add_filter( 'pb_export_tools_preprocess_html_path', 'pb_export_tools_preprocess_html' );
 
 function pb_export_tools_preprocess_html( string $html_path ): string {
+	global $_pb_export_tools_processed_html_path;
+
 	if ( ! get_option( PB_EXPORT_TOOLS_OPTION, true ) ) {
 		return $html_path;
 	}
@@ -277,6 +313,9 @@ function pb_export_tools_preprocess_html( string $html_path ): string {
 	if ( get_option( PB_EXPORT_TOOLS_SPOKEN_ALT, false ) ) {
 		$cmd[] = '--spoken-alt-text';
 	}
+	if ( get_option( PB_EXPORT_TOOLS_IMAGE_ONLY, false ) ) {
+		$cmd[] = '--image-only';
+	}
 	$cmd[] = '--output';
 	$cmd[] = $processed_path;
 	$cmd[] = $html_path;
@@ -293,6 +332,9 @@ function pb_export_tools_preprocess_html( string $html_path ): string {
 		return $html_path;
 	}
 
+	// Store so the postprocess action can pass --html to pb-postprocess-pdf.
+	$_pb_export_tools_processed_html_path = $processed_path;
+
 	error_log( '[pb-export-tools] HTML pre-processing succeeded.' );
 	return $processed_path;
 }
@@ -302,10 +344,14 @@ function pb_export_tools_preprocess_html( string $html_path ): string {
  *
  * Runs pb-postprocess-pdf on the PDF that Prince just created to inject
  * ViewerPreferences/DisplayDocTitle and pdfuaid:part=2 XMP metadata.
+ * When a processed HTML file was produced by the preprocess step, also
+ * passes --html so MathML can be attached to the math structure elements.
  */
 add_action( 'pb_export_tools_postprocess_pdf', 'pb_export_tools_postprocess_pdf' );
 
 function pb_export_tools_postprocess_pdf( string $pdf_path ): void {
+	global $_pb_export_tools_processed_html_path;
+
 	if ( ! get_option( PB_EXPORT_TOOLS_OPTION, true ) ) {
 		return;
 	}
@@ -320,7 +366,18 @@ function pb_export_tools_postprocess_pdf( string $pdf_path ): void {
 		return;
 	}
 
-	[ $exit_code, $stderr ] = pb_export_tools_run( [ $bin, $pdf_path ] );
+	$cmd = [ $bin, $pdf_path ];
+
+	// If we have a processed HTML file, pass it so MathML can be injected.
+	if (
+		$_pb_export_tools_processed_html_path !== null
+		&& file_exists( $_pb_export_tools_processed_html_path )
+	) {
+		$cmd[] = '--html';
+		$cmd[] = $_pb_export_tools_processed_html_path;
+	}
+
+	[ $exit_code, $stderr ] = pb_export_tools_run( $cmd );
 
 	if ( $exit_code !== 0 ) {
 		error_log( sprintf(
