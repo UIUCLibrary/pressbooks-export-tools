@@ -194,7 +194,7 @@ def test_inline_surrounding_text_preserved() -> None:
     assert "):" in processed, "tail text '):' after second equation was lost"
 
 
-
+def test_process_html_with_xml_encoding_declaration() -> None:
     """process_html must not raise when markup contains an XML encoding declaration.
 
     Pressbooks XHTML exports begin with ``<?xml version="1.0" encoding="UTF-8"?>``.
