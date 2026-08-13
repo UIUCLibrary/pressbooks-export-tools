@@ -107,5 +107,9 @@ def _apply_replacement(
     parent = math_image.element.getparent()
     if parent is None:
         return
+    # Preserve the tail (text between this element and its next sibling) so
+    # that surrounding prose such as " or " between two consecutive inline
+    # equations is not silently dropped when the <img> is replaced.
+    replacement.tail = math_image.element.tail
     parent.replace(math_image.element, replacement)
     etree.strip_attributes(replacement, "data-source-src")

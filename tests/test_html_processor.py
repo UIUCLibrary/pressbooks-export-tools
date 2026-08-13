@@ -167,7 +167,34 @@ def test_data_latex_set_even_when_backend_emits_alttext() -> None:
     assert 'aria-label="spoken: x+y"' in processed
 
 
-def test_process_html_with_xml_encoding_declaration() -> None:
+def test_inline_surrounding_text_preserved() -> None:
+    """Text between adjacent inline equations must not be lost after replacement.
+
+    Given markup like::
+
+        To find your mean (<img alt="\\mu" class="latex"> or <img alt="\\bar{x}" class="latex">):
+
+    the `` or `` tail text on the first ``<img>`` and the ``):`` tail text on
+    the second must survive when both images are replaced with ``<math>`` elements.
+
+    This is the lxml ``replace()`` gotcha: calling ``parent.replace(old, new)``
+    does **not** automatically copy ``old.tail`` to ``new``, so without an
+    explicit copy the surrounding prose disappears.
+    """
+    markup = (
+        '<html><body>'
+        '<p>To find your mean (<img class="latex" alt="\\mu"> or '
+        '<img class="latex" alt="\\bar{x}">):</p>'
+        '</body></html>'
+    )
+
+    processed = HtmlProcessor(backend=StubBackend()).process_html(markup)
+
+    assert " or " in processed, "tail text ' or ' was lost between inline equations"
+    assert "):" in processed, "tail text '):' after second equation was lost"
+
+
+
     """process_html must not raise when markup contains an XML encoding declaration.
 
     Pressbooks XHTML exports begin with ``<?xml version="1.0" encoding="UTF-8"?>``.
