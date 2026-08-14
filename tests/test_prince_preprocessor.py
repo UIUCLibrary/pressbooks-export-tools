@@ -158,3 +158,54 @@ def test_existing_lang_not_overwritten(preprocessor: PrinceHtmlPreprocessor) -> 
     if root is not None:
         assert root.get("lang") == "fr"
 
+
+
+# ---------------------------------------------------------------------------
+# MathML fixes for Prince XML (accent=true on mover, stretchy=false on OP mo)
+# ---------------------------------------------------------------------------
+
+def test_preprocessor_adds_accent_true_to_mover(preprocessor: PrinceHtmlPreprocessor) -> None:
+    """PrinceHtmlPreprocessor must add accent='true' to <mover> whose accent mo has stretchy='false'.
+
+    This covers the MathJax pipeline where clean.html already contains <math>
+    elements: the preprocessor must fix them even though no <img> conversion
+    takes place at this stage.
+    """
+    _MML = "http://www.w3.org/1998/Math/MathML"
+    markup = (
+        '<html><body>'
+        f'<math xmlns="{_MML}">'
+        '<mrow data-mjx-texclass="ORD">'
+        '<mover><mi>x</mi><mo stretchy="false">&#xAF;</mo></mover>'
+        '</mrow>'
+        '</math>'
+        '</body></html>'
+    )
+    result = preprocessor.process_html(markup)
+    assert 'accent="true"' in result, (
+        "PrinceHtmlPreprocessor must add accent='true' to <mover> for x-bar to render correctly"
+    )
+
+
+def test_preprocessor_adds_stretchy_false_to_op_mo(preprocessor: PrinceHtmlPreprocessor) -> None:
+    """PrinceHtmlPreprocessor must add stretchy='false' to <mo data-mjx-texclass='OP'>.
+
+    Without this, Prince expands sigma (∑) as a large stretchy operator.
+    """
+    _MML = "http://www.w3.org/1998/Math/MathML"
+    markup = (
+        '<html><body>'
+        f'<math xmlns="{_MML}">'
+        '<mo data-mjx-texclass="OP">&#x2211;</mo>'
+        '</math>'
+        '</body></html>'
+    )
+    result = preprocessor.process_html(markup)
+    # The mo element should now carry stretchy="false"
+    doc = html.fromstring(result)
+    mo_elements = doc.xpath('//*[local-name()="mo"][@data-mjx-texclass="OP"]')
+    assert mo_elements, "Expected at least one <mo data-mjx-texclass='OP'> element"
+    for mo in mo_elements:
+        assert mo.get("stretchy") == "false", (
+            f"<mo data-mjx-texclass='OP'> must have stretchy='false', got {mo.get('stretchy')!r}"
+        )

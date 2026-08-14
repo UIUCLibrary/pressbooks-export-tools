@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .math.substituter import _fix_mover_stretchy, _fix_op_stretchy
 from lxml import html
 
 from .math.backends.sre_backend import SreNodeBackend
@@ -128,6 +129,8 @@ class PrinceHtmlPreprocessor:
         for math_el in document.xpath('//*[local-name()="math"]'):
             if not math_el.get("role"):
                 math_el.set("role", "math")
+            _fix_mover_stretchy(math_el)
+            _fix_op_stretchy(math_el)
 
     def _update_img_alt_text(self, img_elements: list) -> None:
         """Replace LaTeX ``alt`` with spoken text; preserve LaTeX in ``data-latex``.

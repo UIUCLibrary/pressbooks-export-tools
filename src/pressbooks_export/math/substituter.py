@@ -78,24 +78,28 @@ _MML_NS = "http://www.w3.org/1998/Math/MathML"
 
 
 def _fix_mover_stretchy(root: etree._Element) -> None:
-    """Remove erroneous ``stretchy="true"`` from accent ``<mo>`` inside ``<mover>``.
+    """Fix ``<mover>`` accent rendering for Prince XML.
 
-    latex2mathml incorrectly sets ``stretchy="true"`` on certain single-character
-    accent operators (e.g. the macron for ``\\bar{x}``, the arrow for
-    ``\\vec{x}``).  MathJax — and the MathML Core specification — treat these as
-    *accent* operators whose stretchy default is ``false``.  The explicit
-    ``stretchy="true"`` overrides that default, causing the glyph to expand to
-    the full width of its container and appear far above the base character.
+    Two complementary fixes are applied to every ``<mover>`` whose overscript
+    child is a single-character accent ``<mo>``:
 
-    The fix sets ``stretchy="false"`` explicitly on the accent ``<mo>``.
-    Simply deleting the attribute is insufficient for Prince XML, which does
-    not apply the MathML operator-dictionary default of ``false`` for accent
-    operators inside ``<mover>`` — without the explicit value the glyph still
-    expands to fill its container and floats above the base character.
+    1. **``stretchy="true"`` → ``stretchy="false"``** – latex2mathml incorrectly
+       sets ``stretchy="true"`` on certain accent operators (e.g. the macron for
+       ``\\bar{x}``, the arrow for ``\\vec{x}``).  This causes the glyph to expand
+       to fill its container and float far above the base.  Setting it explicitly
+       to ``"false"`` overrides the bad default.
+
+    2. **Add ``accent="true"`` to ``<mover>``** – Prince XML does not infer accent
+       positioning from the overscript ``<mo>`` alone.  Without an explicit
+       ``accent="true"`` on ``<mover>``, Prince renders the overbar as a floating
+       overscript (visually separated from the base) rather than as a tight accent
+       directly above it.  This applies both when latex2mathml emits
+       ``stretchy="true"`` (fixed above) and when MathJax already emits
+       ``stretchy="false"`` but omits ``accent="true"`` on the parent.
 
     The "wide" operators (``\\widehat``, ``\\overline``, ``\\overbrace``, etc.)
-    do *not* have ``stretchy`` set at all (neither latex2mathml nor MathJax sets
-    it for them), so they are unaffected by this function and continue to stretch
+    do *not* have ``stretchy="false"`` on their ``<mo>`` (neither latex2mathml
+    nor MathJax sets it for them), so they are unaffected and continue to stretch
     as intended.
     """
     # lxml may strip MathML namespace declarations when parsing via
@@ -111,8 +115,37 @@ def _fix_mover_stretchy(root: etree._Element) -> None:
             continue
         accent_mo = children[1]
         mo_local = accent_mo.tag.split("}")[-1] if "}" in accent_mo.tag else accent_mo.tag
-        if mo_local == "mo" and accent_mo.get("stretchy") == "true":
+        if mo_local != "mo":
+            continue
+        # Fix 1: normalise stretchy="true" to stretchy="false" on accent <mo>.
+        if accent_mo.get("stretchy") == "true":
             accent_mo.set("stretchy", "false")
+        # Fix 2: add accent="true" to the <mover> when the overscript <mo> has
+        # stretchy="false" (either originally or just set above).  Prince needs
+        # this explicit attribute to position the accent tightly above the base.
+        if accent_mo.get("stretchy") == "false" and not el.get("accent"):
+            el.set("accent", "true")
+
+
+def _fix_op_stretchy(root: etree._Element) -> None:
+    """Add ``stretchy="false"`` to MathJax large-operator ``<mo>`` elements.
+
+    MathJax annotates large operators such as ``∑`` and ``∏`` with
+    ``data-mjx-texclass="OP"``.  Prince XML treats ``∑`` (U+2211) as a
+    stretchy large operator by default, causing it to expand vertically to
+    match surrounding content.  Adding ``stretchy="false"`` explicitly
+    prevents this unwanted scaling and renders the sigma at its natural size.
+
+    Only ``<mo>`` elements that carry ``data-mjx-texclass="OP"`` and have no
+    existing ``stretchy`` attribute are touched; any element that already has
+    an explicit ``stretchy`` value is left unchanged.
+    """
+    for el in root.iter():
+        local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        if local != "mo":
+            continue
+        if el.get("data-mjx-texclass") == "OP" and el.get("stretchy") is None:
+            el.set("stretchy", "false")
 
 
 def _apply_replacement(
@@ -124,6 +157,7 @@ def _apply_replacement(
     """Swap *math_image*'s ``<img>`` element for the parsed *mathml* fragment."""
     replacement = html.fragment_fromstring(mathml, create_parent=False)
     _fix_mover_stretchy(replacement)
+    _fix_op_stretchy(replacement)
     if math_image.display:
         replacement.set("display", "block")
     # Prince XML reads the MathML ``alttext`` attribute to populate the

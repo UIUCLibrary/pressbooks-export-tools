@@ -51,7 +51,7 @@ def test_spoken_alt_text_replaces_alt_attribute() -> None:
 
 from lxml import etree as _etree  # noqa: E402
 
-from pressbooks_export.math.substituter import _fix_mover_stretchy  # noqa: E402
+from pressbooks_export.math.substituter import _fix_mover_stretchy, _fix_op_stretchy  # noqa: E402
 
 _MML_NS = "http://www.w3.org/1998/Math/MathML"
 
@@ -68,46 +68,85 @@ def _mover_accent_mo(stretchy_val: str | None) -> _etree._Element:
 
 
 def test_fix_mover_stretchy_removes_true_from_accent() -> None:
-    """stretchy='true' on a mover accent mo must be set to 'false' explicitly.
-
-    Prince XML does not apply the MathML operator-dictionary default for accent
-    operators, so the attribute must carry an explicit ``stretchy="false"`` value
-    rather than being deleted.
-    """
+    """stretchy='true' on a mover accent mo is changed to 'false', and accent='true' added to mover."""
     root = _mover_accent_mo("true")
     _fix_mover_stretchy(root)
     mo = root.find(f".//{{{_MML_NS}}}mo")
+    mover = root.find(f".//{{{_MML_NS}}}mover")
     assert mo is not None
-    assert mo.get("stretchy") == "false", (
-        "stretchy='true' should have been changed to stretchy='false' for Prince XML"
-    )
+    assert mo.get("stretchy") == "false"
+    assert mover is not None
+    assert mover.get("accent") == "true", "accent='true' must be added to <mover> for Prince XML"
 
 
-def test_fix_mover_stretchy_leaves_false_unchanged() -> None:
-    """An explicit stretchy='false' (e.g. from MathJax or \\tilde) is not changed."""
+def test_fix_mover_stretchy_leaves_false_unchanged_adds_accent() -> None:
+    """An explicit stretchy='false' (e.g. from MathJax \\bar{x}) gains accent='true' on mover."""
     root = _mover_accent_mo("false")
     _fix_mover_stretchy(root)
     mo = root.find(f".//{{{_MML_NS}}}mo")
+    mover = root.find(f".//{{{_MML_NS}}}mover")
     assert mo is not None
     assert mo.get("stretchy") == "false"
+    assert mover is not None
+    assert mover.get("accent") == "true", "accent='true' must be added when mo has stretchy='false'"
 
 
 def test_fix_mover_stretchy_leaves_absent_unchanged() -> None:
-    """No stretchy attribute (e.g. \\widehat, \\overline) stays unset."""
+    """No stretchy attribute (e.g. \\widehat, \\overline) stays unset; no accent added."""
     root = _mover_accent_mo(None)
     _fix_mover_stretchy(root)
     mo = root.find(f".//{{{_MML_NS}}}mo")
+    mover = root.find(f".//{{{_MML_NS}}}mover")
     assert mo is not None
     assert mo.get("stretchy") is None
+    assert mover is not None
+    assert mover.get("accent") is None, "accent must not be added for wide-accent mover"
+
+
+def test_fix_mover_stretchy_does_not_overwrite_existing_accent() -> None:
+    """An existing accent='true' on mover (e.g. latex2mathml \\hat{x}) is left as-is."""
+    xml = (
+        f'<math xmlns="{_MML_NS}">'
+        f'<mover accent="true"><mi>x</mi><mo stretchy="false">^</mo></mover>'
+        f"</math>"
+    )
+    root = _etree.fromstring(xml.encode())
+    _fix_mover_stretchy(root)
+    mover = root.find(f".//{{{_MML_NS}}}mover")
+    assert mover is not None
+    assert mover.get("accent") == "true"
+
+
+def test_fix_op_stretchy_adds_false_to_mjx_op() -> None:
+    """<mo data-mjx-texclass='OP'> without stretchy gets stretchy='false'."""
+    xml = (
+        f'<math xmlns="{_MML_NS}">'
+        f'<mo data-mjx-texclass="OP">&#x2211;</mo>'
+        f"</math>"
+    )
+    root = _etree.fromstring(xml.encode())
+    _fix_op_stretchy(root)
+    mo = root.find(f".//{{{_MML_NS}}}mo")
+    assert mo is not None
+    assert mo.get("stretchy") == "false", "stretchy='false' must be added to OP-class mo"
+
+
+def test_fix_op_stretchy_does_not_overwrite_existing_stretchy() -> None:
+    """<mo data-mjx-texclass='OP' stretchy='true'> is left unchanged."""
+    xml = (
+        f'<math xmlns="{_MML_NS}">'
+        f'<mo data-mjx-texclass="OP" stretchy="true">&#x2211;</mo>'
+        f"</math>"
+    )
+    root = _etree.fromstring(xml.encode())
+    _fix_op_stretchy(root)
+    mo = root.find(f".//{{{_MML_NS}}}mo")
+    assert mo is not None
+    assert mo.get("stretchy") == "true"
 
 
 def test_fix_mover_stretchy_end_to_end_bar_x() -> None:
-    r"""HtmlProcessor with latex2mathml: \bar{x} must have explicit stretchy='false' in output.
-
-    Prince XML requires an explicit ``stretchy="false"`` on accent ``<mo>``
-    elements — removing the attribute is not enough because Prince does not
-    apply the MathML operator-dictionary default.
-    """
+    r"""HtmlProcessor with latex2mathml: \bar{x} must have accent='true' on mover and stretchy='false' on mo."""
     from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
 
     markup = r'<html><body><p><img class="latex" alt="\bar{x}" /></p></body></html>'
@@ -116,17 +155,15 @@ def test_fix_mover_stretchy_end_to_end_bar_x() -> None:
         r"stretchy='true' should have been replaced in \bar{x} mover accent"
     )
     assert 'stretchy="false"' in processed, (
-        r"stretchy='false' must be set explicitly for Prince XML on \bar{x} mover accent"
+        r"stretchy='false' must be set on \bar{x} accent mo"
+    )
+    assert 'accent="true"' in processed, (
+        r"accent='true' must be set on <mover> for \bar{x} to render correctly in Prince XML"
     )
 
 
 def test_fix_mover_stretchy_end_to_end_vec_x() -> None:
-    r"""HtmlProcessor with latex2mathml: \vec{x} must have explicit stretchy='false' in output.
-
-    Prince XML requires an explicit ``stretchy="false"`` on accent ``<mo>``
-    elements — removing the attribute is not enough because Prince does not
-    apply the MathML operator-dictionary default.
-    """
+    r"""HtmlProcessor with latex2mathml: \vec{x} must have accent='true' on mover and stretchy='false' on mo."""
     from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
 
     markup = r'<html><body><p><img class="latex" alt="\vec{x}" /></p></body></html>'
@@ -135,7 +172,10 @@ def test_fix_mover_stretchy_end_to_end_vec_x() -> None:
         r"stretchy='true' should have been replaced in \vec{x} mover accent"
     )
     assert 'stretchy="false"' in processed, (
-        r"stretchy='false' must be set explicitly for Prince XML on \vec{x} mover accent"
+        r"stretchy='false' must be set on \vec{x} accent mo"
+    )
+    assert 'accent="true"' in processed, (
+        r"accent='true' must be set on <mover> for \vec{x} to render correctly in Prince XML"
     )
 def test_spoken_alt_text_preserves_latex_in_title() -> None:
     """The aria-label on the math element should contain the spoken description."""
