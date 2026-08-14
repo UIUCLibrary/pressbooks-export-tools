@@ -87,9 +87,11 @@ def _fix_mover_stretchy(root: etree._Element) -> None:
     ``stretchy="true"`` overrides that default, causing the glyph to expand to
     the full width of its container and appear far above the base character.
 
-    The fix mirrors what MathJax emits: delete the ``stretchy`` attribute
-    entirely from the accent ``<mo>`` and let the MathML renderer apply its
-    operator-dictionary default (``false`` for accent operators in ``<mover>``).
+    The fix sets ``stretchy="false"`` explicitly on the accent ``<mo>``.
+    Simply deleting the attribute is insufficient for Prince XML, which does
+    not apply the MathML operator-dictionary default of ``false`` for accent
+    operators inside ``<mover>`` — without the explicit value the glyph still
+    expands to fill its container and floats above the base character.
 
     The "wide" operators (``\\widehat``, ``\\overline``, ``\\overbrace``, etc.)
     do *not* have ``stretchy`` set at all (neither latex2mathml nor MathJax sets
@@ -110,7 +112,7 @@ def _fix_mover_stretchy(root: etree._Element) -> None:
         accent_mo = children[1]
         mo_local = accent_mo.tag.split("}")[-1] if "}" in accent_mo.tag else accent_mo.tag
         if mo_local == "mo" and accent_mo.get("stretchy") == "true":
-            del accent_mo.attrib["stretchy"]
+            accent_mo.set("stretchy", "false")
 
 
 def _apply_replacement(

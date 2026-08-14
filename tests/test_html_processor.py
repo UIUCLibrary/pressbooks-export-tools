@@ -68,12 +68,19 @@ def _mover_accent_mo(stretchy_val: str | None) -> _etree._Element:
 
 
 def test_fix_mover_stretchy_removes_true_from_accent() -> None:
-    """stretchy='true' on a mover accent mo must be removed."""
+    """stretchy='true' on a mover accent mo must be set to 'false' explicitly.
+
+    Prince XML does not apply the MathML operator-dictionary default for accent
+    operators, so the attribute must carry an explicit ``stretchy="false"`` value
+    rather than being deleted.
+    """
     root = _mover_accent_mo("true")
     _fix_mover_stretchy(root)
     mo = root.find(f".//{{{_MML_NS}}}mo")
     assert mo is not None
-    assert mo.get("stretchy") is None, "stretchy='true' should have been deleted"
+    assert mo.get("stretchy") == "false", (
+        "stretchy='true' should have been changed to stretchy='false' for Prince XML"
+    )
 
 
 def test_fix_mover_stretchy_leaves_false_unchanged() -> None:
@@ -95,24 +102,40 @@ def test_fix_mover_stretchy_leaves_absent_unchanged() -> None:
 
 
 def test_fix_mover_stretchy_end_to_end_bar_x() -> None:
-    r"""HtmlProcessor with latex2mathml: \bar{x} must not have stretchy='true' in output."""
+    r"""HtmlProcessor with latex2mathml: \bar{x} must have explicit stretchy='false' in output.
+
+    Prince XML requires an explicit ``stretchy="false"`` on accent ``<mo>``
+    elements — removing the attribute is not enough because Prince does not
+    apply the MathML operator-dictionary default.
+    """
     from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
 
     markup = r'<html><body><p><img class="latex" alt="\bar{x}" /></p></body></html>'
     processed = HtmlProcessor(backend=Latex2MathMLBackend()).process_html(markup)
     assert 'stretchy="true"' not in processed, (
-        r"stretchy='true' should have been removed from \bar{x} mover accent"
+        r"stretchy='true' should have been replaced in \bar{x} mover accent"
+    )
+    assert 'stretchy="false"' in processed, (
+        r"stretchy='false' must be set explicitly for Prince XML on \bar{x} mover accent"
     )
 
 
 def test_fix_mover_stretchy_end_to_end_vec_x() -> None:
-    r"""HtmlProcessor with latex2mathml: \vec{x} must not have stretchy='true' in output."""
+    r"""HtmlProcessor with latex2mathml: \vec{x} must have explicit stretchy='false' in output.
+
+    Prince XML requires an explicit ``stretchy="false"`` on accent ``<mo>``
+    elements — removing the attribute is not enough because Prince does not
+    apply the MathML operator-dictionary default.
+    """
     from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
 
     markup = r'<html><body><p><img class="latex" alt="\vec{x}" /></p></body></html>'
     processed = HtmlProcessor(backend=Latex2MathMLBackend()).process_html(markup)
     assert 'stretchy="true"' not in processed, (
-        r"stretchy='true' should have been removed from \vec{x} mover accent"
+        r"stretchy='true' should have been replaced in \vec{x} mover accent"
+    )
+    assert 'stretchy="false"' in processed, (
+        r"stretchy='false' must be set explicitly for Prince XML on \vec{x} mover accent"
     )
 def test_spoken_alt_text_preserves_latex_in_title() -> None:
     """The aria-label on the math element should contain the spoken description."""
