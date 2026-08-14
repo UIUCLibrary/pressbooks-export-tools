@@ -96,14 +96,20 @@ def _fix_mover_stretchy(root: etree._Element) -> None:
     it for them), so they are unaffected by this function and continue to stretch
     as intended.
     """
-    for mover in root.iter(f"{{{_MML_NS}}}mover"):
-        children = list(mover)
+    # lxml may strip MathML namespace declarations when parsing via
+    # html.fragment_fromstring, leaving bare tag names (e.g. "mover" instead of
+    # "{http://...}mover").  Support both forms by matching the local name.
+    for el in root.iter():
+        local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        if local != "mover":
+            continue
+        children = list(el)
         # <mover> has exactly two children: base (index 0) and accent (index 1).
         if len(children) < 2:
             continue
         accent_mo = children[1]
-        tag = accent_mo.tag.split("}")[-1] if "}" in accent_mo.tag else accent_mo.tag
-        if tag == "mo" and accent_mo.get("stretchy") == "true":
+        mo_local = accent_mo.tag.split("}")[-1] if "}" in accent_mo.tag else accent_mo.tag
+        if mo_local == "mo" and accent_mo.get("stretchy") == "true":
             del accent_mo.attrib["stretchy"]
 
 

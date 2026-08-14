@@ -45,6 +45,75 @@ def test_spoken_alt_text_replaces_alt_attribute() -> None:
     assert '<img class="latex"' not in processed
 
 
+# ---------------------------------------------------------------------------
+# _fix_mover_stretchy unit tests
+# ---------------------------------------------------------------------------
+
+from lxml import etree as _etree  # noqa: E402
+
+from pressbooks_export.math.substituter import _fix_mover_stretchy  # noqa: E402
+
+_MML_NS = "http://www.w3.org/1998/Math/MathML"
+
+
+def _mover_accent_mo(stretchy_val: str | None) -> _etree._Element:
+    """Build a minimal <math><mover> fragment with an accent <mo>."""
+    attrs = f' stretchy="{stretchy_val}"' if stretchy_val is not None else ""
+    xml = (
+        f'<math xmlns="{_MML_NS}">'
+        f'<mover><mi>x</mi><mo{attrs}>&#xAF;</mo></mover>'
+        f"</math>"
+    )
+    return _etree.fromstring(xml.encode())
+
+
+def test_fix_mover_stretchy_removes_true_from_accent() -> None:
+    """stretchy='true' on a mover accent mo must be removed."""
+    root = _mover_accent_mo("true")
+    _fix_mover_stretchy(root)
+    mo = root.find(f".//{{{_MML_NS}}}mo")
+    assert mo is not None
+    assert mo.get("stretchy") is None, "stretchy='true' should have been deleted"
+
+
+def test_fix_mover_stretchy_leaves_false_unchanged() -> None:
+    """An explicit stretchy='false' (e.g. from MathJax or \\tilde) is not changed."""
+    root = _mover_accent_mo("false")
+    _fix_mover_stretchy(root)
+    mo = root.find(f".//{{{_MML_NS}}}mo")
+    assert mo is not None
+    assert mo.get("stretchy") == "false"
+
+
+def test_fix_mover_stretchy_leaves_absent_unchanged() -> None:
+    """No stretchy attribute (e.g. \\widehat, \\overline) stays unset."""
+    root = _mover_accent_mo(None)
+    _fix_mover_stretchy(root)
+    mo = root.find(f".//{{{_MML_NS}}}mo")
+    assert mo is not None
+    assert mo.get("stretchy") is None
+
+
+def test_fix_mover_stretchy_end_to_end_bar_x() -> None:
+    r"""HtmlProcessor with latex2mathml: \bar{x} must not have stretchy='true' in output."""
+    from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
+
+    markup = r'<html><body><p><img class="latex" alt="\bar{x}" /></p></body></html>'
+    processed = HtmlProcessor(backend=Latex2MathMLBackend()).process_html(markup)
+    assert 'stretchy="true"' not in processed, (
+        r"stretchy='true' should have been removed from \bar{x} mover accent"
+    )
+
+
+def test_fix_mover_stretchy_end_to_end_vec_x() -> None:
+    r"""HtmlProcessor with latex2mathml: \vec{x} must not have stretchy='true' in output."""
+    from pressbooks_export.math.backends.latex2mathml_backend import Latex2MathMLBackend
+
+    markup = r'<html><body><p><img class="latex" alt="\vec{x}" /></p></body></html>'
+    processed = HtmlProcessor(backend=Latex2MathMLBackend()).process_html(markup)
+    assert 'stretchy="true"' not in processed, (
+        r"stretchy='true' should have been removed from \vec{x} mover accent"
+    )
 def test_spoken_alt_text_preserves_latex_in_title() -> None:
     """The aria-label on the math element should contain the spoken description."""
     markup = '<html><body><p><img class="latex" alt="\\frac{1}{2}" /></p></body></html>'
