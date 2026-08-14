@@ -74,6 +74,39 @@ def replace_latex_images(
         _apply_replacement(math_image, mathml, i, speeches)
 
 
+_MML_NS = "http://www.w3.org/1998/Math/MathML"
+
+
+def _fix_mover_stretchy(root: etree._Element) -> None:
+    """Remove erroneous ``stretchy="true"`` from accent ``<mo>`` inside ``<mover>``.
+
+    latex2mathml incorrectly sets ``stretchy="true"`` on certain single-character
+    accent operators (e.g. the macron for ``\\bar{x}``, the arrow for
+    ``\\vec{x}``).  MathJax — and the MathML Core specification — treat these as
+    *accent* operators whose stretchy default is ``false``.  The explicit
+    ``stretchy="true"`` overrides that default, causing the glyph to expand to
+    the full width of its container and appear far above the base character.
+
+    The fix mirrors what MathJax emits: delete the ``stretchy`` attribute
+    entirely from the accent ``<mo>`` and let the MathML renderer apply its
+    operator-dictionary default (``false`` for accent operators in ``<mover>``).
+
+    The "wide" operators (``\\widehat``, ``\\overline``, ``\\overbrace``, etc.)
+    do *not* have ``stretchy`` set at all (neither latex2mathml nor MathJax sets
+    it for them), so they are unaffected by this function and continue to stretch
+    as intended.
+    """
+    for mover in root.iter(f"{{{_MML_NS}}}mover"):
+        children = list(mover)
+        # <mover> has exactly two children: base (index 0) and accent (index 1).
+        if len(children) < 2:
+            continue
+        accent_mo = children[1]
+        tag = accent_mo.tag.split("}")[-1] if "}" in accent_mo.tag else accent_mo.tag
+        if tag == "mo" and accent_mo.get("stretchy") == "true":
+            del accent_mo.attrib["stretchy"]
+
+
 def _apply_replacement(
     math_image: LatexImage,
     mathml: str,
@@ -82,6 +115,7 @@ def _apply_replacement(
 ) -> None:
     """Swap *math_image*'s ``<img>`` element for the parsed *mathml* fragment."""
     replacement = html.fragment_fromstring(mathml, create_parent=False)
+    _fix_mover_stretchy(replacement)
     if math_image.display:
         replacement.set("display", "block")
     # Prince XML reads the MathML ``alttext`` attribute to populate the
