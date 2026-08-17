@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pressbooks-export-tools"
+version = "0.1.0"
+description = "Scaffold for Pressbooks HTML to accessible PDF/ODT export tooling"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "UIUCLibrary" }]
+dependencies = [
+  "click>=8.0,<9",
+  "lxml>=6.1,<7",
+]
+
+[project.optional-dependencies]
+math = ["latex2mathml>=3.0,<4"]
+pdf = ["pikepdf>=9.11"]
+odt = ["pypandoc>=1.17,<2"]
+test = ["pytest>=9,<10", "pikepdf>=9.11"]
+all = [
+  "latex2mathml>=3.0,<4",
+  "pikepdf>=9.11",
+  "pypandoc>=1.17,<2",
+  "weasyprint>=69,<70",
+  "pytest>=9,<10",
+]
+
+[project.scripts]
+pb-export = "pressbooks_export.cli:main"
+pb-extract-latex = "pressbooks_export.cli:extract_latex"
+pb-postprocess-pdf = "pressbooks_export.cli:postprocess_pdf"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

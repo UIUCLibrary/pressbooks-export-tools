@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+node_modules/
+spike/output/
+spike/reference/*.pdf
+spike/reference/*.aux
+spike/reference/*.log
+*.log
+example_documents/dirty.html

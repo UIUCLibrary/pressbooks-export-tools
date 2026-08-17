@@ -1,0 +1,9 @@
+{
+  "name": "pressbooks-export-tools-mathjax-backend",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mathjax-full": "3.2.2",
+    "speech-rule-engine": "^5.0.0-rc.1"
+  }
+}
