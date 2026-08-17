@@ -68,7 +68,10 @@ class PrinceHtmlPreprocessor:
 
     def process_html(self, markup: str) -> str:
         """Return *markup* with math roles and optional spoken alt text injected."""
-        document = html.fromstring(markup)
+        # lxml rejects a unicode string that contains an XML encoding declaration
+        # (e.g. <?xml version="1.0" encoding="UTF-8"?>) — pass bytes instead so
+        # it can handle the declaration itself.
+        document = html.fromstring(markup.encode("utf-8"))
         self._fix_html_lang(document)
         self._add_math_roles(document)
         return html.tostring(document, encoding="unicode", pretty_print=True, method="xml")

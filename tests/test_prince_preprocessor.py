@@ -209,3 +209,24 @@ def test_preprocessor_adds_stretchy_false_to_op_mo(preprocessor: PrinceHtmlPrepr
         assert mo.get("stretchy") == "false", (
             f"<mo data-mjx-texclass='OP'> must have stretchy='false', got {mo.get('stretchy')!r}"
         )
+
+
+def test_process_html_tolerates_xml_encoding_declaration(
+    preprocessor: PrinceHtmlPreprocessor,
+) -> None:
+    """process_html must not crash when markup contains an XML encoding declaration.
+
+    Pressbooks XHTML exports begin with ``<?xml version="1.0" encoding="UTF-8"?>``
+    which lxml rejects when the input is already a decoded unicode string.  The
+    preprocessor must encode to bytes first so lxml can handle the declaration.
+    """
+    markup = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<!DOCTYPE html>'
+        '<html xml:lang="en"><head><title>T</title></head>'
+        '<body><p><img class="latex" alt="x^2" /></p></body></html>'
+    )
+    result = preprocessor.process_html(markup)
+    doc = _parse(result)
+    img = doc.xpath('//img[contains(@class, "latex")]')[0]
+    assert img.get("role") == "math"
